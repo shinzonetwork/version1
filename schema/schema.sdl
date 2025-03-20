@@ -1,0 +1,34 @@
+type Block {
+    number: Int!
+    hash: String! @primary
+    timestamp: Int!
+    transactions: [Transaction!]! @relation(field: "block")
+}
+
+type Transaction {
+    hash: String! @primary
+    block: Block! @relation(field: "transactions")
+    from: String!
+    to: String
+    value: String!
+    gas: String!
+    gasPrice: String!
+    input: String!
+    nonce: Int!
+    logs: [Log!]! @relation(field: "transaction")
+}
+
+type Log {
+    address: String!
+    transaction: Transaction! @relation(field: "logs")
+    topics: [String!]!
+    data: String!
+    logIndex: Int!
+    events: [Event!]! @relation(field: "log")
+}
+
+type Event {
+    log: Log! @relation(field: "events")
+    name: String!
+    params: JSON!
+}

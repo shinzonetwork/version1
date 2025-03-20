@@ -1,0 +1,86 @@
+name: log
+steps:
+  - name: normalize_addresses
+    type: normalize
+    config:
+      fields:
+        - address
+        - topics[*]
+      case: lower
+
+  - name: decode_topics
+    type: enrich
+    config:
+      fields:
+        eventSignature: "topics[0]"
+        decoded_topics:
+          - name: "topic1"
+            value: "topics[1]"
+            decode: "hex"
+          - name: "topic2"
+            value: "topics[2]"
+            decode: "hex"
+          - name: "topic3"
+            value: "topics[3]"
+            decode: "hex"
+
+  - name: validate_log
+    type: validate
+    config:
+      rules:
+        - field: address
+          required: true
+          format: "^0x[a-f0-9]{40}$"
+        - field: topics
+          required: true
+          type: array
+        - field: data
+          required: true
+        - field: logIndex
+          required: true
+          type: number
+
+  - name: prepare_relationships
+    type: enrich
+    config:
+      fields:
+        transaction_id:
+          value: "${transactionHash}"
+        block_id:
+          value: "${blockHash}"
+
+  - name: store_log
+    type: store
+    config:
+      mutation: |
+        mutation {
+          create_Log(input: {
+            address: $address,
+            topics: $topics,
+            data: $data,
+            blockNumber: $blockNumber,
+            transactionHash: $transactionHash,
+            transactionIndex: $transactionIndex,
+            blockHash: $blockHash,
+            logIndex: $logIndex,
+            removed: $removed,
+            transaction_id: $transaction_id,
+            block_id: $block_id
+          }) {
+            address
+            topics
+            data
+            blockNumber
+            transactionHash
+            transactionIndex
+            blockHash
+            logIndex
+            removed
+            transaction {
+              hash
+            }
+            block {
+              hash
+            }
+          }
+        }

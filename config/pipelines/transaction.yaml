@@ -1,0 +1,179 @@
+name: transaction
+steps:
+  - name: normalize_fields
+    type: normalize
+    config:
+      case: lower
+      fields:
+        - hash
+        - blockHash
+        - from
+        - to
+
+  - name: format_numbers
+    type: normalize
+    config:
+      fields:
+        - value
+        - nonce
+        - gasPrice
+        - gas
+        - maxFeePerGas
+        - maxPriorityFeePerGas
+        - chainId
+        - type
+      format: hex
+
+  - name: format_signatures
+    type: normalize
+    config:
+      fields:
+        - r
+        - s
+        - v
+      format: hex
+
+  - name: decode_input
+    type: enrich
+    config:
+      fields:
+        input_data:
+          raw: "input"
+          method: "substr(input, 0, 10)"
+          params: "substr(input, 10)"
+
+  - name: detect_contract_interaction
+    type: enrich
+    config:
+      conditions:
+        - if: "input_data.method == '0xa9059cbb'"
+          then:
+            type: "transfer"
+            token: "to"
+            recipient: "0x${substr(input_data.params, 24, 64)}"
+            amount: "hex_to_int(substr(input_data.params, 64))"
+        - if: "input_data.method == '0x23b872dd'"
+          then:
+            type: "transferFrom"
+            token: "to"
+            sender: "0x${substr(input_data.params, 24, 64)}"
+            recipient: "0x${substr(input_data.params, 88, 64)}"
+            amount: "hex_to_int(substr(input_data.params, 128))"
+
+  - name: validate_fields
+    type: validate
+    config:
+      required:
+        - hash
+        - blockHash
+        - blockNumber
+        - from
+        - to
+        - value
+        - gas
+        - gasPrice
+        - input
+        - nonce
+        - transactionIndex
+        - r
+        - s
+        - v
+        - type
+        - chainId
+        - yParity
+
+  - name: prepare_transaction
+    type: transform
+    config:
+      fields:
+        network:
+          value: "${env.NETWORK_NAME}"
+        indexedAt:
+          value: "${now()}"
+        accessList:
+          value: ""
+        yParity:
+          value: ""
+
+  - name: store_transaction
+    type: store
+    config:
+      structure:
+        required:
+          - hash
+          - from
+          - to
+          - value
+          - gas
+          - gasPrice
+          - nonce
+          - input
+          - yParity
+        optional:
+          - events
+      defaults:
+        events: []
+      mutation: |
+        mutation {
+          create_Transaction(input: {
+            hash: $hash,
+            blockHash: $blockHash,
+            blockNumber: $blockNumber,
+            from: $from,
+            to: $to,
+            value: $value,
+            gas: $gas,
+            gasPrice: $gasPrice,
+            input: $input,
+            nonce: $nonce,
+            transactionIndex: $transactionIndex,
+            r: $r,
+            s: $s,
+            v: $v,
+            type: $type,
+            yParity: $yParity,
+            chainId: $chainId,
+            maxFeePerGas: $maxFeePerGas,
+            maxPriorityFeePerGas: $maxPriorityFeePerGas,
+            accessList: $accessList,
+            indexedAt: $indexedAt,
+            network: $network
+          }) {
+            hash
+            blockHash
+            blockNumber
+            from
+            to
+            value
+            gas
+            gasPrice
+            input
+            nonce
+            transactionIndex
+            r
+            s
+            v
+            type
+            yParity
+            chainId
+            maxFeePerGas
+            maxPriorityFeePerGas
+            accessList
+            indexedAt
+            network
+          }
+        }
+
+  - name: connect_to_block
+    type: store
+    config:
+      mutation: |
+        mutation {
+          update_Transaction(by: { hash: $hash }, input: {
+            block: {
+              connect: $blockHash
+            }
+          }) {
+            hash
+          }
+        }

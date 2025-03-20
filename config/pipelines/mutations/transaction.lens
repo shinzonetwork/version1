@@ -1,0 +1,68 @@
+// Transaction mutation pipeline
+pipeline "create_transaction" {
+  // Format input fields for GraphQL mutation
+  transform "format_fields" {
+    input = $
+    output = {
+      hash: lower($.hash),
+      blockHash: lower($.blockHash),
+      from: lower($.from),
+      to: coalesce(lower($.to), null),
+      value: $.value,
+      gasPrice: format("0x%x", parse_int($.gasPrice)),
+      gas: format("0x%x", parse_int($.gas)),
+      input: $.input,
+      nonce: format("0x%x", parse_int($.nonce)),
+      transactionIndex: format("0x%x", parse_int($.transactionIndex)),
+      status: $.status,
+      contractAddress: coalesce(lower($.contractAddress), null),
+      network: $.network,
+      indexedAt: $.indexedAt
+    }
+  }
+
+  // Generate mutation
+  transform "mutation" {
+    input = $
+    output = {
+      mutation: format(`
+        mutation {
+          create_Transaction(input: {
+            hash: %q,
+            blockHash: %q,
+            from: %q,
+            to: %q,
+            value: %q,
+            gasPrice: %q,
+            gas: %q,
+            input: %q,
+            nonce: %q,
+            transactionIndex: %q,
+            status: %q,
+            contractAddress: %q,
+            network: %q,
+            indexedAt: %q
+          }) {
+            document {
+              hash
+            }
+          }
+        }`,
+        $.hash,
+        $.blockHash,
+        $.from,
+        $.to,
+        $.value,
+        $.gasPrice,
+        $.gas,
+        $.input,
+        $.nonce,
+        $.transactionIndex,
+        $.status,
+        $.contractAddress,
+        $.network,
+        $.indexedAt
+      )
+    }
+  }
+}

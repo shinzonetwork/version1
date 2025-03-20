@@ -1,0 +1,121 @@
+name: block
+steps:
+  - name: filter_raw_fields
+    type: filter
+    config:
+      fields:
+        - hash
+        - number
+        - timestamp
+        - parentHash
+        - difficulty
+        - gasUsed
+        - gasLimit
+        - nonce
+        - miner
+        - size
+        - stateRoot
+        - sha3Uncles
+        - transactionsRoot
+        - receiptsRoot
+        - extraData
+        - transactions
+
+  - name: normalize_fields
+    type: normalize
+    config:
+      fields:
+        - hash
+        - parentHash
+        - stateRoot
+        - sha3Uncles
+        - transactionsRoot
+        - receiptsRoot
+        - miner
+      case: lower
+
+  - name: map_fields
+    type: enrich
+    config:
+      fields:
+        hash: "hash"
+        number: "number"
+        time: "timestamp"
+        parentHash: "parentHash"
+        difficulty: "difficulty"
+        gasUsed: "gasUsed"
+        gasLimit: "gasLimit"
+        nonce: "nonce"
+        miner: "miner"
+        size: "size"
+        stateRootHash: "stateRoot"
+        uncleHash: "sha3Uncles"
+        transactionRootHash: "transactionsRoot"
+        receiptRootHash: "receiptsRoot"
+        extraData: "extraData"
+        transactions: "transactions"
+
+  - name: filter_fields
+    type: filter
+    config:
+      fields:
+        - hash
+        - number
+        - time
+        - parentHash
+        - difficulty
+        - gasUsed
+        - gasLimit
+        - nonce
+        - miner
+        - size
+        - stateRootHash
+        - uncleHash
+        - transactionRootHash
+        - receiptRootHash
+        - extraData
+        - transactions
+
+  - name: validate_block
+    type: validate
+    config:
+      required:
+        - hash
+        - number
+        - time
+        - parentHash
+        - difficulty
+        - gasUsed
+        - gasLimit
+        - nonce
+        - miner
+        - size
+        - stateRootHash
+        - uncleHash
+        - transactionRootHash
+        - receiptRootHash
+        - extraData
+      optional:
+        - transactions
+
+  - name: process_transactions
+    type: enrich
+    config:
+      arrayField: "transactions"
+      structure:
+        required:
+          - hash
+          - from
+          - to
+          - value
+          - gas
+          - gasPrice
+          - nonce
+          - input
+          - yParity
+        optional:
+          - logs
+          - events
+      defaults:
+        logs: null
+        events: []

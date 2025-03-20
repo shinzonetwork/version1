@@ -44,3 +44,30 @@ lensvm:
       - name: "event_transform"
         input: "Event"
         output: "Event"
+
+lens:
+  pipelines:
+    block: "config/pipelines/block.yaml"
+    transaction: "config/pipelines/transaction.yaml"
+    log: "config/pipelines/log.yaml"
+  defaultPipeline: "config/pipelines/block.yaml"
+  options:
+    maxConcurrency: 10
+    bufferSize: 1000
+    enableMetrics: true
+    retryAttempts: 3
+    retryDelay: 1000
+  transforms:
+    normalize:
+      - name: "block_transform"
+        input: "Block"
+        output: "Block"
+      - name: "transaction_transform"
+        input: "Transaction"
+        output: "Transaction"
+      - name: "log_transform"
+        input: "Log"
+        output: "Log"
+      - name: "event_transform"
+        input: "Event"
+        output: "Event"

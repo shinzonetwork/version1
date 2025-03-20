@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Stop DefraDB
-killall defradb
+pkill defradb
 
 # Drop existing collections
 rm -rf ~/.defradb/data

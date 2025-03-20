@@ -1,0 +1,74 @@
+// Block mutation pipeline
+pipeline "create_block" {
+  // Format input fields for GraphQL mutation
+  transform "format_fields" {
+    input = $
+    output = {
+      hash: lower($.hash),
+      number: format("0x%x", parse_int($.number)),
+      timestamp: $.timestamp,
+      parentHash: lower($.parentHash),
+      difficulty: format("0x%x", parse_int($.difficulty)),
+      gasUsed: format("0x%x", parse_int($.gasUsed)),
+      gasLimit: format("0x%x", parse_int($.gasLimit)),
+      nonce: format("0x%x", parse_int($.nonce)),
+      miner: lower($.miner),
+      size: format("0x%x", parse_int($.size)),
+      stateRoot: lower($.stateRoot),
+      transactionsRoot: lower($.transactionsRoot),
+      receiptsRoot: lower($.receiptsRoot),
+      extraData: $.extraData,
+      network: $.network,
+      indexedAt: $.indexedAt
+    }
+  }
+
+  // Generate mutation
+  transform "mutation" {
+    input = $
+    output = {
+      mutation: format(`
+        mutation {
+          create_Block(input: {
+            hash: %q,
+            number: %q,
+            timestamp: %q,
+            parentHash: %q,
+            difficulty: %q,
+            gasUsed: %q,
+            gasLimit: %q,
+            nonce: %q,
+            miner: %q,
+            size: %q,
+            stateRoot: %q,
+            transactionsRoot: %q,
+            receiptsRoot: %q,
+            extraData: %q,
+            network: %q,
+            indexedAt: %q
+          }) {
+            document {
+              hash
+            }
+          }
+        }`,
+        $.hash,
+        $.number,
+        $.timestamp,
+        $.parentHash,
+        $.difficulty,
+        $.gasUsed,
+        $.gasLimit,
+        $.nonce,
+        $.miner,
+        $.size,
+        $.stateRoot,
+        $.transactionsRoot,
+        $.receiptsRoot,
+        $.extraData,
+        $.network,
+        $.indexedAt
+      )
+    }
+  }
+}

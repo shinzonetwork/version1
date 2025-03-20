@@ -1,0 +1,74 @@
+// Block transformation pipeline
+pipeline "block" {
+  // Standardize block number format
+  transform "number" {
+    input = $.number
+    output = format("0x%x", parse_int(input))
+  }
+
+  // Calculate block statistics
+  transform "stats" {
+    input = $
+    output = {
+      transactionCount: len($.transactions),
+      totalGasUsed: $.gasUsed,
+      avgGasPrice: avg($.transactions[*].gasPrice),
+      timestamp: parse_time($.time),
+      size: $.size
+    }
+  }
+
+  // Normalize addresses and hashes
+  transform "normalize" {
+    input = $
+    output = {
+      hash: lower($.hash),
+      parentHash: lower($.parentHash),
+      stateRootHash: lower($.stateRoot),
+      uncleHash: lower($.sha3Uncles),
+      transactionRootHash: lower($.transactionsRoot),
+      receiptRootHash: lower($.receiptsRoot),
+      miner: lower($.miner)
+    }
+  }
+
+  // Format numeric fields
+  transform "numbers" {
+    input = $
+    output = {
+      difficulty: format("0x%x", parse_int($.difficulty)),
+      gasUsed: format("0x%x", parse_int($.gasUsed)),
+      gasLimit: format("0x%x", parse_int($.gasLimit)),
+      nonce: format("0x%x", parse_int($.nonce))
+    }
+  }
+
+  // Add metadata
+  transform "metadata" {
+    input = $
+    output = merge($, {
+      indexedAt: now(),
+      network: env("NETWORK_NAME")
+    })
+  }
+
+  // Create final block output with relationships
+  transform "output" {
+    input = $
+    output = {
+      block: merge(
+        $.normalize,
+        $.numbers,
+        {
+          number: $.number,
+          time: $.stats.timestamp,
+          size: format("0x%x", parse_int($.stats.size)),
+          extraData: $.extraData,
+          indexedAt: $.metadata.indexedAt,
+          network: $.metadata.network
+        }
+      ),
+      transactions: $.transactions
+    }
+  }
+}

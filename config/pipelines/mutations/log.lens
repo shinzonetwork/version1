@@ -1,0 +1,53 @@
+// Log mutation pipeline
+pipeline "create_log" {
+  // Format input fields for GraphQL mutation
+  transform "format_fields" {
+    input = $
+    output = {
+      address: lower($.address),
+      topics: map($.topics, lower),
+      data: $.data,
+      logIndex: format("0x%x", parse_int($.logIndex)),
+      removed: $.removed,
+      blockHash: lower($.blockHash),
+      transactionHash: lower($.transactionHash),
+      network: $.network,
+      indexedAt: $.indexedAt
+    }
+  }
+
+  // Generate mutation
+  transform "mutation" {
+    input = $
+    output = {
+      mutation: format(`
+        mutation {
+          create_Log(input: {
+            address: %q,
+            topics: %s,
+            data: %q,
+            logIndex: %q,
+            removed: %v,
+            blockHash: %q,
+            transactionHash: %q,
+            network: %q,
+            indexedAt: %q
+          }) {
+            document {
+              logIndex
+            }
+          }
+        }`,
+        $.address,
+        json_encode($.topics),
+        $.data,
+        $.logIndex,
+        $.removed,
+        $.blockHash,
+        $.transactionHash,
+        $.network,
+        $.indexedAt
+      )
+    }
+  }
+}

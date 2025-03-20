@@ -1,0 +1,85 @@
+// Transaction transformation pipeline
+pipeline "transaction" {
+  // Normalize addresses and hashes
+  transform "normalize" {
+    input = $
+    output = {
+      hash: lower($.hash),
+      blockHash: lower($.blockHash),
+      from: lower($.from),
+      to: coalesce(lower($.to), null),
+      contractAddress: coalesce(lower($.contractAddress), null)
+    }
+  }
+
+  // Format numeric fields
+  transform "numbers" {
+    input = $
+    output = {
+      value: format("0x%x", parse_int($.value)),
+      gas: format("0x%x", parse_int($.gas)),
+      gasPrice: format("0x%x", parse_int($.gasPrice)),
+      nonce: format("0x%x", parse_int($.nonce)),
+      transactionIndex: format("0x%x", parse_int($.transactionIndex)),
+      chainId: coalesce(format("0x%x", parse_int($.chainId)), null),
+      maxFeePerGas: coalesce(format("0x%x", parse_int($.maxFeePerGas)), null),
+      maxPriorityFeePerGas: coalesce(format("0x%x", parse_int($.maxPriorityFeePerGas)), null)
+    }
+  }
+
+  // Format signature fields
+  transform "signature" {
+    input = $
+    output = {
+      r: lower($.r),
+      s: lower($.s),
+      v: lower($.v),
+      type: coalesce($.type, "0x0")
+    }
+  }
+
+  // Process events (logs)
+  transform "events" {
+    input = $.logs
+    output = map(input, log -> {
+      address: lower(log.address),
+      topics: map(log.topics, lower),
+      data: log.data,
+      logIndex: format("0x%x", parse_int(log.logIndex)),
+      blockHash: lower(log.blockHash),
+      transactionHash: lower(log.transactionHash),
+      blockNumber: format("0x%x", parse_int(log.blockNumber)),
+      transactionIndex: format("0x%x", parse_int(log.transactionIndex)),
+      removed: log.removed
+    })
+  }
+
+  // Add metadata
+  transform "metadata" {
+    input = $
+    output = {
+      indexedAt: now(),
+      network: env("NETWORK_NAME")
+    }
+  }
+
+  // Create final output with relationships
+  transform "output" {
+    input = $
+    output = {
+      transaction: merge(
+        $.normalize,
+        $.numbers,
+        $.signature,
+        {
+          input: $.input,
+          status: $.status,
+          accessList: coalesce(json_encode($.accessList), "[]"),
+          indexedAt: $.metadata.indexedAt,
+          network: $.metadata.network
+        }
+      ),
+      events: $.events
+    }
+  }
+}

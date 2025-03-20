@@ -48,7 +48,31 @@ func (c *AlchemyClient) GetBlock(ctx context.Context, blockNumber string) (*type
 	return result.Result, nil
 }
 
-func (c *AlchemyClient) GetTransactionReceipt(ctx context.Context, txHash string) (*types.TransactionReceipt, error) {
+func (c *AlchemyClient) GetBlockByNumber(ctx context.Context, blockNumber int) (map[string]interface{}, error) {
+	payload := fmt.Sprintf(`{
+		"jsonrpc": "2.0",
+		"method": "eth_getBlockByNumber",
+		"params": ["0x%x", true],
+		"id": 1
+	}`, blockNumber)
+
+	resp, err := c.post(ctx, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Result map[string]interface{} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result.Result, nil
+}
+
+func (c *AlchemyClient) GetTransactionReceipt(ctx context.Context, txHash string) (map[string]interface{}, error) {
 	payload := fmt.Sprintf(`{
 		"jsonrpc": "2.0",
 		"method": "eth_getTransactionReceipt",
@@ -63,7 +87,7 @@ func (c *AlchemyClient) GetTransactionReceipt(ctx context.Context, txHash string
 	defer resp.Body.Close()
 
 	var result struct {
-		Result *types.TransactionReceipt `json:"result"`
+		Result map[string]interface{} `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)

@@ -7,11 +7,23 @@ type Transaction @collection {
   value: String!                  # The value transferred in the transaction
   gas: String!                    # Amount of gas used for this transaction
   gasPrice: String!               # Price per unit of gas
-  input: String!                  # Transaction data (Base64-encoded)
+  input: String!                  # Transaction data
   nonce: String!                  # Nonce of the transaction (to prevent double-spending)
-  state: Int!                     # State of the transaction (e.g., successful, failed)
   transactionIndex: String!       # Transaction index within the block
-  status: Boolean!                # Transaction status (e.g., successful, failed)
+  
+  # Additional fields from Alchemy
+  r: String!                      # ECDSA signature r
+  s: String!                      # ECDSA signature s
+  v: String!                      # ECDSA recovery id
+  type: String!                   # Transaction type
+  chainId: String!                # Chain ID
+  maxFeePerGas: String           # Maximum fee per gas (EIP-1559)
+  maxPriorityFeePerGas: String   # Maximum priority fee per gas (EIP-1559)
+  accessList: String             # Access list (EIP-2930)
+  
+  # Metadata
+  indexedAt: String!             # When the transaction was indexed
+  network: String!               # Network the transaction was on
   
   # Relationships
   block: Block! @relation(name: "block_transactions")  # The block this transaction belongs to

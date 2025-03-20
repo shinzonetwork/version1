@@ -1,0 +1,56 @@
+// Event mutation pipeline
+pipeline "create_event" {
+  // Format input fields for GraphQL mutation
+  transform "format_fields" {
+    input = $
+    output = {
+      eventType: $.eventType,
+      signature: lower($.signature),
+      address: lower($.address),
+      params: json_encode($.params),
+      rawData: $.rawData,
+      blockHash: lower($.blockHash),
+      transactionHash: lower($.transactionHash),
+      logIndex: format("0x%x", parse_int($.logIndex)),
+      network: $.network,
+      indexedAt: $.indexedAt
+    }
+  }
+
+  // Generate mutation
+  transform "mutation" {
+    input = $
+    output = {
+      mutation: format(`
+        mutation {
+          create_Event(input: {
+            eventType: %q,
+            signature: %q,
+            address: %q,
+            params: %s,
+            rawData: %q,
+            blockHash: %q,
+            transactionHash: %q,
+            logIndex: %q,
+            network: %q,
+            indexedAt: %q
+          }) {
+            document {
+              logIndex
+            }
+          }
+        }`,
+        $.eventType,
+        $.signature,
+        $.address,
+        $.params,
+        $.rawData,
+        $.blockHash,
+        $.transactionHash,
+        $.logIndex,
+        $.network,
+        $.indexedAt
+      )
+    }
+  }
+}

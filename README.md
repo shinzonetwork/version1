@@ -134,3 +134,36 @@ Example query:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+
+## Testing commands:
+
+```bash
+echo '1. Transaction count:' && 
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Transaction { hash }}"}' http://localhost:9181/api/v0/graphql &&
+echo -e "\n\n2. Log count:" &&
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Log { logIndex transactionHash }}"}' http://localhost:9181/api/v0/graphql &&
+echo -e "\n\n3. Event count:" &&
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Event { name logIndex }}"}' http://localhost:9181/api/v0/graphql
+```
+
+```bash
+echo '1. Blocks with transactions:' && curl -X POST -H "Content-Type: application/json" -d '{"query": "{Block {hash number time transactions {hash from to value}}}"}' http://localhost:9181/api/v0/graphql && echo -e '\n\n2. Logs with transactions:' && curl -X POST -H "Content-Type: application/json" -d '{"query": "{Log {logIndex address topics transaction {hash from to}}}"}' http://localhost:9181/api/v0/graphql && echo -e '\n\n3. Events with context:' && curl -X POST -H "Content-Type: application/json" -d '{"query": "{Event {name args address transaction {hash} block {number}}}"}' http://localhost:9181/api/v0/graphql
+```
+
+```bash
+# 1. Basic block query with filtering
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Block(filter: {number: {_eq: \"18100000\"}}) {hash number time miner}}"}' http://localhost:9181/api/v0/graphql
+
+# 2. Get block with its transactions
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Block(filter: {number: {_eq: \"18100000\"}}) {hash number transactions {hash from to value}}}"}' http://localhost:9181/api/v0/graphql
+
+# 3. Get transaction with its logs and events
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Transaction(filter: {blockNumber: {_eq: \"18100000\"}}) {hash from to logs {address topics} events {name args}}}"}' http://localhost:9181/api/v0/graphql
+
+# 4. Get logs for a specific address
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Log(filter: {address: {_eq: \"0x1234...\"}}) {logIndex topics data transaction {hash}}}"}' http://localhost:9181/api/v0/graphql
+
+# 5. Get events with decoded information
+curl -X POST -H "Content-Type: application/json" -d '{"query": "{Event(filter: {name: {_eq: \"Transfer\"}}) {name args address transaction {hash} block {number}}}"}' http://localhost:9181/api/v0/graphql
+```

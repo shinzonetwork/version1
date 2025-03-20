@@ -1,0 +1,57 @@
+// Log transformation pipeline
+pipeline "log" {
+  // Normalize addresses and hashes
+  transform "normalize" {
+    input = $
+    output = {
+      address: lower($.address),
+      blockHash: lower($.blockHash),
+      transactionHash: lower($.transactionHash)
+    }
+  }
+
+  // Format numeric fields
+  transform "numbers" {
+    input = $
+    output = {
+      blockNumber: format("0x%x", parse_int($.blockNumber)),
+      transactionIndex: format("0x%x", parse_int($.transactionIndex)),
+      logIndex: format("0x%x", parse_int($.logIndex))
+    }
+  }
+
+  // Process topics
+  transform "topics" {
+    input = $
+    output = {
+      topics: map($.topics, lower)
+    }
+  }
+
+  // Add metadata
+  transform "metadata" {
+    input = $
+    output = {
+      indexedAt: now(),
+      network: env("NETWORK_NAME")
+    }
+  }
+
+  // Create final output
+  transform "output" {
+    input = $
+    output = {
+      log: merge(
+        $.normalize,
+        $.numbers,
+        $.topics,
+        {
+          data: $.data,
+          removed: coalesce($.removed, false),
+          indexedAt: $.metadata.indexedAt,
+          network: $.metadata.network
+        }
+      )
+    }
+  }
+}

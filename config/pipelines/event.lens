@@ -1,0 +1,67 @@
+// Event transformation pipeline
+pipeline "event" {
+  // Normalize addresses and hashes
+  transform "normalize" {
+    input = $
+    output = {
+      address: lower($.address),
+      blockHash: lower($.blockHash),
+      transactionHash: lower($.transactionHash)
+    }
+  }
+
+  // Format numeric fields
+  transform "numbers" {
+    input = $
+    output = {
+      blockNumber: format("0x%x", parse_int($.blockNumber)),
+      transactionIndex: format("0x%x", parse_int($.transactionIndex)),
+      logIndex: format("0x%x", parse_int($.logIndex))
+    }
+  }
+
+  // Process topics and event signature
+  transform "event_info" {
+    input = $
+    output = {
+      topics: map($.topics, lower),
+      name: match_event_signature($.topics[0])
+    }
+  }
+
+  // Process event arguments
+  transform "args" {
+    input = $
+    output = {
+      args: json_encode(decode_event_params($.topics, $.data, $.name))
+    }
+  }
+
+  // Add metadata
+  transform "metadata" {
+    input = $
+    output = {
+      indexedAt: now(),
+      network: env("NETWORK_NAME")
+    }
+  }
+
+  // Create final output
+  transform "output" {
+    input = $
+    output = {
+      event: merge(
+        $.normalize,
+        $.numbers,
+        $.event_info,
+        $.args,
+        {
+          data: $.data,
+          removed: coalesce($.removed, false),
+          indexedAt: $.metadata.indexedAt,
+          network: $.metadata.network
+        }
+      )
+    }
+  }
+}

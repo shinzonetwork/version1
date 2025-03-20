@@ -31,6 +31,17 @@ type Transaction {
   input: String
   nonce: String
   transactionIndex: String
+  r: String
+  s: String
+  v: String
+  type: String
+  yParity: String
+  chainId: String
+  maxFeePerGas: String
+  maxPriorityFeePerGas: String
+  accessList: String
+  indexedAt: String
+  network: String
   status: Boolean
   # Relationships
   block: Block @relation(name: "block_transactions")

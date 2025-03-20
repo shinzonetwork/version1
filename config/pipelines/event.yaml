@@ -1,0 +1,90 @@
+name: event
+steps:
+  - name: normalize_fields
+    type: normalize
+    config:
+      fields:
+        - address
+        - topics[*]
+      case: lower
+
+  - name: decode_topics
+    type: enrich
+    config:
+      fields:
+        eventSignature: "topics[0]"
+        decoded_topics:
+          - name: "topic1"
+            value: "topics[1]"
+            decode: "hex"
+          - name: "topic2"
+            value: "topics[2]"
+            decode: "hex"
+          - name: "topic3"
+            value: "topics[3]"
+            decode: "hex"
+
+  - name: validate_event
+    type: validate
+    config:
+      required:
+        - address
+        - topics
+        - data
+        - blockNumber
+        - transactionHash
+        - transactionIndex
+        - blockHash
+        - logIndex
+        - name
+        - args
+        - removed
+
+  - name: prepare_relationships
+    type: enrich
+    config:
+      fields:
+        transaction_id:
+          value: "${transactionHash}"
+        block_id:
+          value: "${blockHash}"
+
+  - name: store_event
+    type: store
+    config:
+      mutation: |
+        mutation {
+          create_Event(input: {
+            address: $address,
+            topics: $topics,
+            data: $data,
+            blockNumber: $blockNumber,
+            transactionHash: $transactionHash,
+            transactionIndex: $transactionIndex,
+            blockHash: $blockHash,
+            logIndex: $logIndex,
+            name: $name,
+            args: $args,
+            removed: $removed,
+            transaction_id: $transaction_id,
+            block_id: $block_id
+          }) {
+            address
+            topics
+            data
+            blockNumber
+            transactionHash
+            transactionIndex
+            blockHash
+            logIndex
+            name
+            args
+            removed
+            transaction {
+              hash
+            }
+            block {
+              hash
+            }
+          }
+        }
