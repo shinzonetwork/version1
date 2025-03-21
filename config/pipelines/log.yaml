@@ -13,6 +13,7 @@ steps:
         - blockHash
         - logIndex
         - removed
+        - transaction_id
 
   - name: normalize_addresses
     type: normalize
@@ -20,8 +21,8 @@ steps:
       fields:
         - address
         - topics[*]
-        - blockHash
         - transactionHash
+        - blockHash
       case: lower
 
   - name: normalize_numbers
@@ -62,6 +63,7 @@ steps:
         blockHash: "blockHash"
         logIndex: "logIndex"
         removed: "removed"
+        transaction_id: "transaction_id"
 
   - name: validate_log
     type: validate
@@ -90,12 +92,14 @@ steps:
         - field: transactionIndex
           required: true
           type: number
+        - field: transaction_id
+          required: true
 
   - name: store_log
     type: enrich
     config:
-      mutation: |
-        mutation {
+      query: |
+        mutation CreateLog {
           create_Log(input: {
             address: $address
             topics: $topics
@@ -106,9 +110,8 @@ steps:
             blockHash: $blockHash
             logIndex: $logIndex
             removed: $removed
+            transaction_id: $transaction_id
           }) {
             _docID
-            address
-            transactionHash
           }
         }

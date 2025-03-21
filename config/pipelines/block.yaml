@@ -19,7 +19,6 @@ steps:
         - transactionsRoot
         - receiptsRoot
         - extraData
-        - transactions
 
   - name: normalize_fields
     type: normalize
@@ -67,7 +66,6 @@ steps:
         transactionRootHash: "transactionsRoot"
         receiptRootHash: "receiptsRoot"
         extraData: "extraData"
-        transactions: "transactions"
 
   - name: filter_fields
     type: filter
@@ -88,9 +86,8 @@ steps:
         - transactionRootHash
         - receiptRootHash
         - extraData
-        - transactions
 
-  - name: validate_block
+  - name: validate_fields
     type: validate
     config:
       required:
@@ -109,75 +106,14 @@ steps:
         - transactionRootHash
         - receiptRootHash
         - extraData
-        - transactions
-
-  - name: process_transactions
-    type: enrich
-    config:
-      arrayField: "transactions"
-      structure:
-        required:
-          - hash
-        optional:
-          - logs
-      defaults:
-        logs: []
-
-  - name: prepare_transactions
-    type: enrich
-    config:
-      fields:
-        transaction_hashes:
-          value: "map(transactions, 'hash')"
-
-  - name: validate_block
-    type: validate
-    config:
-      required:
-        - hash
-        - number
-        - time
-        - parentHash
-        - difficulty
-        - gasUsed
-        - gasLimit
-        - nonce
-        - miner
-        - size
-        - stateRootHash
-        - uncleHash
-        - transactionRootHash
-        - receiptRootHash
-        - extraData
-        - transactions
 
   - name: store_block
     type: enrich
     config:
-      mutation: |
-        mutation {
-          create_Block(input: {
-            hash: $hash
-            number: $number
-            time: $time
-            parentHash: $parentHash
-            difficulty: $difficulty
-            gasUsed: $gasUsed
-            gasLimit: $gasLimit
-            nonce: $nonce
-            miner: $miner
-            size: $size
-            stateRootHash: $stateRootHash
-            uncleHash: $uncleHash
-            transactionRootHash: $transactionRootHash
-            receiptRootHash: $receiptRootHash
-            extraData: $extraData
-            transactions: {
-              connect: $transaction_hashes
-            }
-          }) {
+      query: |
+        mutation CreateBlock($input: BlockInput!) {
+          create_Block(input: $input) {
             _docID
             hash
-            number
           }
         }

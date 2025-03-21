@@ -19,7 +19,15 @@ steps:
         - v
         - r
         - s
-        - logs
+        - block_id
+        - transactionIndex
+        - yParity
+        - maxFeePerGas
+        - maxPriorityFeePerGas
+        - accessList
+        - indexedAt
+        - network
+        - status
 
   - name: normalize_addresses
     type: normalize
@@ -31,6 +39,28 @@ steps:
         - to
       case: lower
 
+  - name: normalize_value
+    type: normalize
+    config:
+      fields:
+        - value
+      format: string
+      transform: |
+        function transform(value) {
+          if (!value) return "0";
+          if (typeof value === "string") return value;
+          if (typeof value === "object") {
+            if (value.value) {
+              return value.value.toString();
+            }
+            if (value.hex) {
+              return value.hex;
+            }
+            return JSON.stringify(value);
+          }
+          return value.toString();
+        }
+
   - name: normalize_numbers
     type: normalize
     config:
@@ -39,10 +69,11 @@ steps:
         - gas
         - gasPrice
         - nonce
-        - value
         - type
         - chainId
         - v
+        - maxFeePerGas
+        - maxPriorityFeePerGas
       format: string
 
   - name: map_fields
@@ -54,38 +85,47 @@ steps:
         blockNumber: "blockNumber"
         from: "from"
         to: "to"
+        value: "value"
         gas: "gas"
         gasPrice: "gasPrice"
         input: "input"
         nonce: "nonce"
-        value: "value"
-        type: "type"
-        chainId: "chainId"
-        v: "v"
+        transactionIndex: "transactionIndex"
         r: "r"
         s: "s"
-        logs: "logs"
+        v: "v"
+        type: "type"
+        yParity: "yParity"
+        chainId: "chainId"
+        maxFeePerGas: "maxFeePerGas"
+        maxPriorityFeePerGas: "maxPriorityFeePerGas"
+        accessList: "accessList"
+        indexedAt: "indexedAt"
+        network: "network"
+        status: "status"
+        block_id: "block_id"
 
-  - name: process_logs
-    type: enrich
+  - name: validate_fields
+    type: validate
     config:
-      arrayField: "logs"
-      structure:
-        required:
-          - logIndex
-          - transactionHash
-        optional:
-          - events
-          - address
-          - topics
-          - data
-          - blockNumber
-          - blockHash
-          - transactionIndex
-          - removed
-      defaults:
-        events: []
-        removed: false
+      required:
+        - hash
+        - blockHash
+        - blockNumber
+        - from
+        - to
+        - value
+        - gas
+        - gasPrice
+        - input
+        - nonce
+        - transactionIndex
+        - r
+        - s
+        - v
+        - type
+        - chainId
+        - block_id
 
   - name: prepare_fields
     type: enrich
@@ -106,57 +146,38 @@ steps:
         status:
           value: true
 
-  - name: validate_transaction
-    type: validate
-    config:
-      required:
-        - hash
-        - blockHash
-        - blockNumber
-        - from
-        - gas
-        - gasPrice
-        - input
-        - nonce
-        - value
-        - type
-        - chainId
-        - v
-        - r
-        - s
-
   - name: store_transaction
     type: enrich
     config:
-      mutation: |
-        mutation {
+      query: |
+        mutation CreateTransaction($hash: String!, $blockHash: String!, $blockNumber: String!, $from: String!, $to: String!, $value: String!, $gas: String!, $gasPrice: String!, $input: String!, $nonce: String!, $transactionIndex: String!, $r: String!, $s: String!, $v: String!, $type: String!, $chainId: String!, $block_id: String!, $yParity: String, $maxFeePerGas: String, $maxPriorityFeePerGas: String, $accessList: String, $indexedAt: String, $network: String, $status: Boolean) {
           create_Transaction(input: {
             hash: $hash
             blockHash: $blockHash
             blockNumber: $blockNumber
             from: $from
             to: $to
+            value: $value
             gas: $gas
             gasPrice: $gasPrice
             input: $input
             nonce: $nonce
-            value: $value
-            type: $type
-            chainId: $chainId
-            v: $v
+            transactionIndex: $transactionIndex
             r: $r
             s: $s
-            network: $network
-            indexedAt: $indexedAt
+            v: $v
+            type: $type
+            chainId: $chainId
+            block_id: $block_id
             yParity: $yParity
             maxFeePerGas: $maxFeePerGas
             maxPriorityFeePerGas: $maxPriorityFeePerGas
             accessList: $accessList
+            indexedAt: $indexedAt
+            network: $network
             status: $status
-            logs: $logs
           }) {
             _docID
             hash
-            blockHash
           }
         }

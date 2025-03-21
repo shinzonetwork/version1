@@ -23,7 +23,6 @@ type Indexer struct {
 	defraURL    string
 	alchemy     *rpc.AlchemyClient
 	logger      *zap.Logger
-	config      *config.Config
 	lastBlock   int
 	client      *http.Client
 	transformer *lens.Transformer
@@ -35,34 +34,17 @@ type Response struct {
 	} `json:"data"`
 }
 
-func NewIndexer(cfg *config.Config) (*Indexer, error) {
-	logConfig := zap.NewDevelopmentConfig()
-	logConfig.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	logger, err := logConfig.Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create logger: %w", err)
-	}
-
+func NewIndexer(cfg *config.Config, logger *zap.Logger) (*Indexer, error) {
 	client := &http.Client{
-		Timeout: time.Second * 30,
+		Timeout: 10 * time.Second,
 	}
 
 	transformConfig := &lens.TransformConfig{
 		Pipelines: map[string]string{
 			"block":       "config/pipelines/block.yaml",
 			"transaction": "config/pipelines/transaction.yaml",
-			"log":         "config/pipelines/log.yaml",
-			"event":       "config/pipelines/event.yaml",
-		},
-		DefaultPipeline: "config/pipelines/block.yaml",
-		Options: struct {
-			MaxConcurrency int  `yaml:"maxConcurrency"`
-			BufferSize     int  `yaml:"bufferSize"`
-			EnableMetrics  bool `yaml:"enableMetrics"`
-		}{
-			MaxConcurrency: 10,
-			BufferSize:     1000,
-			EnableMetrics:  true,
+			"log":        "config/pipelines/log.yaml",
+			"event":      "config/pipelines/event.yaml",
 		},
 	}
 
@@ -75,7 +57,6 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 		defraURL:    fmt.Sprintf("http://%s:%d", cfg.DefraDB.Host, cfg.DefraDB.Port),
 		alchemy:     rpc.NewAlchemyClient(cfg.Alchemy.APIKey),
 		logger:      logger,
-		config:      cfg,
 		lastBlock:   cfg.Indexer.StartHeight - 1,
 		client:      client,
 		transformer: transformer,
@@ -86,34 +67,28 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 
 func (i *Indexer) Start(ctx context.Context) error {
 	i.logger.Info("Starting indexer",
-		zap.Int("start_height", i.config.Indexer.StartHeight),
-		zap.Int("batch_size", i.config.Indexer.BatchSize),
-	)
+		zap.Int("start_height", i.lastBlock+1))
 
 	// Get the highest block number from the database
-	highestBlock, err := i.getHighestBlockNumber(ctx)
+	highestBlock, err := i.getHighestBlock(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get highest block: %w", err)
 	}
-
 	i.lastBlock = highestBlock
-	i.logger.Info("starting from block", zap.Int("block", i.lastBlock+1))
 
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		ticker := time.NewTicker(time.Duration(i.config.Indexer.BlockPollingInterval * float64(time.Second)))
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
-				i.logger.Info("Indexer shutting down gracefully",
-					zap.Int("last_processed_block", i.lastBlock))
-				return nil
+				return ctx.Err()
 			case <-ticker.C:
 				if err := i.processNextBlock(ctx); err != nil {
-					i.logger.Error("Failed to process block",
+					i.logger.Error("Failed to process block", 
 						zap.Int("block_number", i.lastBlock+1),
 						zap.Error(err))
 					return err
@@ -125,7 +100,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 	return g.Wait()
 }
 
-func (i *Indexer) getHighestBlockNumber(ctx context.Context) (int, error) {
+func (i *Indexer) getHighestBlock(ctx context.Context) (int, error) {
 	query := `{
 		Block(orderBy: {number: DESC}, limit: 1) {
 			number
@@ -168,7 +143,7 @@ func (i *Indexer) getHighestBlockNumber(ctx context.Context) (int, error) {
 	}
 
 	if len(result.Data.Block) == 0 {
-		return i.config.Indexer.StartHeight - 1, nil
+		return i.lastBlock + 1, nil
 	}
 
 	// Convert hex string to int
@@ -232,46 +207,33 @@ func (i *Indexer) blockExists(ctx context.Context, blockHash string) (bool, erro
 	return len(result.Data.Block) > 0, nil
 }
 
-func (i *Indexer) postToCollection(ctx context.Context, collection string, data map[string]interface{}) (string, error) {
-	// Get primary key based on collection type
-	var primaryKey string
-	switch collection {
-	case "Block", "Transaction":
-		if hash, ok := data["hash"].(string); ok {
-			primaryKey = hash
-		} else {
-			return "", fmt.Errorf("missing hash field for %s", collection)
+func (i *Indexer) postToCollection(ctx context.Context, collectionName string, data map[string]interface{}) (string, error) {
+	// Build the mutation query
+	query := fmt.Sprintf(`
+		mutation Create%s($input: %sInput!) {
+			create_%s(input: $input) {
+				_docID
+			}
 		}
-	case "Log", "Event":
-		if logIndex, ok := data["logIndex"].(string); ok {
-			primaryKey = logIndex
-		} else {
-			return "", fmt.Errorf("missing logIndex field for %s", collection)
-		}
-	default:
-		return "", fmt.Errorf("unknown collection: %s", collection)
-	}
+	`, collectionName, collectionName, collectionName)
 
-	// Prepare request URL
-	url := fmt.Sprintf("%s/api/v0/collections/%s", i.defraURL, collection)
-
-	// For Block collection, we no longer need to extract from block field
-	// since the pipeline now outputs flattened data
-	if collection == "Block" {
-		// Ensure hash field exists and is a string
-		if _, ok := data["hash"].(string); !ok {
-			return "", fmt.Errorf("invalid or missing hash field in block data")
-		}
-	}
-
-	// Convert data to JSON
-	jsonData, err := json.Marshal(data)
+	// Convert input data to JSON for variables
+	jsonData, err := json.Marshal(map[string]interface{}{
+		"query": query,
+		"variables": map[string]interface{}{
+			"input": data,
+		},
+	})
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal data: %w", err)
+		return "", fmt.Errorf("failed to marshal query: %w", err)
 	}
+
+	i.logger.Info("Sending GraphQL mutation",
+		zap.String("collection", collectionName),
+		zap.Any("input", data))
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -284,19 +246,49 @@ func (i *Indexer) postToCollection(ctx context.Context, collection string, data 
 	}
 	defer resp.Body.Close()
 
-	// Check response status
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		var errorResp struct {
-			Error interface{} `json:"error"`
-		}
-		body, _ := io.ReadAll(resp.Body)
-		if err := json.Unmarshal(body, &errorResp); err == nil {
-			return "", fmt.Errorf("failed to create document: %v", errorResp.Error)
-		}
-		return "", fmt.Errorf("failed to create document: status=%d body=%s", resp.StatusCode, string(body))
+	// Read response body for error handling
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return primaryKey, nil
+	// Parse response
+	var result struct {
+		Data map[string][]struct {
+			DocID string `json:"_docID"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Log the full response for debugging
+	i.logger.Info("DefraDB create response",
+		zap.String("collection", collectionName),
+		zap.String("response", string(body)))
+
+	// Check for GraphQL errors
+	if len(result.Errors) > 0 {
+		return "", fmt.Errorf("GraphQL error: %s", result.Errors[0].Message)
+	}
+
+	// Extract DocID from the response
+	createKey := fmt.Sprintf("create_%s", collectionName)
+	createResult, ok := result.Data[createKey]
+	if !ok || len(createResult) == 0 {
+		return "", fmt.Errorf("no document created")
+	}
+
+	docID := createResult[0].DocID
+	i.logger.Info("Created document",
+		zap.String("collection", collectionName),
+		zap.String("doc_id", docID))
+
+	return docID, nil
 }
 
 func (i *Indexer) postCollection(ctx context.Context, collection string, docID string, data map[string]interface{}) ([]byte, error) {
@@ -376,123 +368,165 @@ func (i *Indexer) postCollection(ctx context.Context, collection string, docID s
 }
 
 func (i *Indexer) processNextBlock(ctx context.Context) error {
-	// Get block data from Alchemy
+	// Get the next block
 	blockData, err := i.alchemy.GetBlockByNumber(ctx, i.lastBlock+1)
 	if err != nil {
 		return fmt.Errorf("failed to get block %d: %w", i.lastBlock+1, err)
 	}
 
+	// Transform and store block first
 	i.logger.Info("Processing block",
-		zap.Int("block_number", i.lastBlock+1),
-		zap.String("block_hash", blockData["hash"].(string)))
+		zap.Int("number", i.lastBlock+1),
+		zap.String("hash", blockData["hash"].(string)))
 
-	// Check if block already exists
-	exists, err := i.blockExists(ctx, blockData["hash"].(string))
-	if err != nil {
-		return fmt.Errorf("failed to check if block %d exists: %w", i.lastBlock+1, err)
-	}
-	if exists {
-		i.logger.Info("Block already exists, skipping",
-			zap.Int("block_number", i.lastBlock+1),
-			zap.String("block_hash", blockData["hash"].(string)))
-		i.lastBlock++
-		return nil
-	}
-
-	// Transform and store block with transactions
 	transformedBlock, err := i.transformer.Transform(ctx, "block", blockData)
 	if err != nil {
 		return fmt.Errorf("failed to transform block %d: %w", i.lastBlock+1, err)
 	}
 
-	// Process transactions first so we have their IDs
-	transactions := blockData["transactions"].([]interface{})
-	var txDocs []map[string]interface{}
-	for _, tx := range transactions {
-		txData := tx.(map[string]interface{})
-		i.logger.Debug("Processing transaction",
-			zap.String("tx_hash", txData["hash"].(string)),
-			zap.String("block_hash", blockData["hash"].(string)))
-
-		// Transform and store transaction
-		transformedTx, err := i.transformer.Transform(ctx, "transaction", txData)
-		if err != nil {
-			return fmt.Errorf("failed to transform transaction in block %d: %w", i.lastBlock+1, err)
-		}
-
-		// Process logs first so we have their IDs
-		var logs []interface{}
-		if logsData, ok := txData["logs"]; ok && logsData != nil {
-			logs = logsData.([]interface{})
-		}
-		var logDocs []map[string]interface{}
-		for _, log := range logs {
-			logData := log.(map[string]interface{})
-			logIndex, ok := logData["logIndex"].(string)
-			if !ok {
-				return fmt.Errorf("missing or invalid logIndex field in log data for block %d, tx %s", i.lastBlock+1, txData["hash"].(string))
-			}
-			i.logger.Debug("Processing log",
-				zap.String("tx_hash", txData["hash"].(string)),
-				zap.String("log_index", logIndex))
-
-			// Transform and store log
-			transformedLog, err := i.transformer.Transform(ctx, "log", logData)
-			if err != nil {
-				return fmt.Errorf("failed to transform log in block %d, tx %s: %w", i.lastBlock+1, txData["hash"].(string), err)
-			}
-
-			// Process events first
-			var events []interface{}
-			if eventsData, ok := logData["events"]; ok && eventsData != nil {
-				events = eventsData.([]interface{})
-			}
-			var eventDocs []map[string]interface{}
-			for _, event := range events {
-				eventData := event.(map[string]interface{})
-				i.logger.Debug("Processing event",
-					zap.String("tx_hash", txData["hash"].(string)),
-					zap.String("log_index", logIndex),
-					zap.String("event_name", eventData["name"].(string)))
-
-				// Transform and store event
-				transformedEvent, err := i.transformer.Transform(ctx, "event", eventData)
-				if err != nil {
-					return fmt.Errorf("failed to transform event in block %d, tx %s, log %s: %w", i.lastBlock+1, txData["hash"].(string), logIndex, err)
-				}
-
-				eventDocs = append(eventDocs, transformedEvent)
-				i.logger.Debug("Prepared event",
-					zap.String("tx_hash", txData["hash"].(string)),
-					zap.String("log_index", logIndex))
-			}
-
-			// Store log with events
-			transformedLog["events"] = eventDocs
-			logDocs = append(logDocs, transformedLog)
-			i.logger.Debug("Prepared log",
-				zap.String("tx_hash", txData["hash"].(string)),
-				zap.String("log_index", logIndex))
-		}
-
-		// Store transaction with logs
-		transformedTx["logs"] = logDocs
-		txDocs = append(txDocs, transformedTx)
-		i.logger.Debug("Prepared transaction",
-			zap.String("tx_hash", txData["hash"].(string)))
-	}
-
-	// Store block with transactions
-	transformedBlock["transactions"] = txDocs
-	blockID, err := i.postToCollection(ctx, "Block", transformedBlock)
+	// 1. Store block first to get its DocID
+	blockDocID, err := i.postToCollection(ctx, "Block", transformedBlock)
 	if err != nil {
 		return fmt.Errorf("failed to store block %d: %w", i.lastBlock+1, err)
 	}
+	i.logger.Info("Stored block",
+		zap.Int("number", i.lastBlock+1),
+		zap.String("doc_id", blockDocID),
+		zap.String("hash", blockData["hash"].(string)))
+
+	// Extract transactions
+	transactions, ok := blockData["transactions"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid transactions data in block %d", i.lastBlock+1)
+	}
+
+	// 2. Store all transactions with block relationship
+	txHashToID := make(map[string]string) // txHash -> stored DocID
+	for _, txData := range transactions {
+		tx := txData.(map[string]interface{})
+		txHash := tx["hash"].(string)
+
+		// Create a copy of tx to avoid modifying the original
+		txCopy := make(map[string]interface{})
+		for k, v := range tx {
+			txCopy[k] = v
+		}
+
+		// Set both relationship fields
+		txCopy["block_id"] = blockDocID // For DefraDB relationship
+		txCopy["block"] = blockDocID    // For GraphQL relationship
+
+		i.logger.Info("Processing transaction",
+			zap.String("tx_hash", txHash),
+			zap.String("block_doc_id", blockDocID))
+
+		// Transform and store transaction
+		transformedTx, err := i.transformer.Transform(ctx, "transaction", txCopy)
+		if err != nil {
+			i.logger.Error("Failed to transform transaction",
+				zap.String("hash", txHash),
+				zap.String("block_id", blockDocID),
+				zap.Error(err))
+			return fmt.Errorf("failed to transform transaction %s: %w", txHash, err)
+		}
+
+		i.logger.Info("Transaction after transform",
+			zap.String("hash", txHash),
+			zap.String("block_id", transformedTx["block_id"].(string)))
+
+		txID, err := i.postToCollection(ctx, "Transaction", transformedTx)
+		if err != nil {
+			i.logger.Error("Failed to store transaction",
+				zap.String("hash", txHash),
+				zap.String("block_id", blockDocID),
+				zap.Error(err))
+			return fmt.Errorf("failed to store transaction: %w", err)
+		}
+		txHashToID[txHash] = txID
+		i.logger.Info("Stored transaction",
+			zap.String("hash", txHash),
+			zap.String("tx_id", txID),
+			zap.String("block_id", blockDocID))
+	}
+
+	// 3. Store all logs with transaction_id
+	for _, txData := range transactions {
+		tx := txData.(map[string]interface{})
+		txHash := tx["hash"].(string)
+		txID := txHashToID[txHash]
+
+		logs, ok := tx["logs"].([]interface{})
+		if !ok {
+			continue // Skip if no logs
+		}
+
+		for _, logData := range logs {
+			log := logData.(map[string]interface{})
+			logHash := fmt.Sprintf("%s-%d", txHash, int(log["logIndex"].(float64)))
+
+			// Set transaction_id for relationship
+			log["transaction_id"] = txID
+
+			// Transform and store log
+			transformedLog, err := i.transformer.Transform(ctx, "log", log)
+			if err != nil {
+				i.logger.Error("Failed to transform log",
+					zap.String("tx_hash", txHash),
+					zap.String("log_hash", logHash),
+					zap.Error(err))
+				return fmt.Errorf("failed to transform log %s: %w", logHash, err)
+			}
+
+			logID, err := i.postToCollection(ctx, "Log", transformedLog)
+			if err != nil {
+				i.logger.Error("Failed to store log",
+					zap.String("tx_hash", txHash),
+					zap.String("log_hash", logHash),
+					zap.Error(err))
+				return fmt.Errorf("failed to store log: %w", err)
+			}
+			i.logger.Info("Stored log",
+				zap.String("tx_hash", txHash),
+				zap.String("log_id", logID),
+				zap.String("transaction_id", txID))
+
+			// 4. Store events with log_id
+			if events, ok := log["events"].([]interface{}); ok {
+				for _, eventData := range events {
+					event := eventData.(map[string]interface{})
+
+					// Set log_id for relationship
+					event["log_id"] = logID
+
+					// Transform and store event
+					transformedEvent, err := i.transformer.Transform(ctx, "event", event)
+					if err != nil {
+						i.logger.Error("Failed to transform event",
+							zap.String("log_hash", logHash),
+							zap.Error(err))
+						return fmt.Errorf("failed to transform event in log %s: %w", logHash, err)
+					}
+
+					eventID, err := i.postToCollection(ctx, "Event", transformedEvent)
+					if err != nil {
+						i.logger.Error("Failed to store event",
+							zap.String("log_hash", logHash),
+							zap.Error(err))
+						return fmt.Errorf("failed to store event: %w", err)
+					}
+					i.logger.Info("Stored event",
+						zap.String("log_hash", logHash),
+						zap.String("event_id", eventID),
+						zap.String("log_id", logID))
+				}
+			}
+		}
+	}
+
 	i.logger.Info("Processed block",
 		zap.Int("block_number", i.lastBlock+1),
 		zap.String("block_hash", blockData["hash"].(string)),
-		zap.String("block_id", blockID),
-		zap.Int("transactions", len(txDocs)))
+		zap.String("block_id", blockDocID))
 
 	i.lastBlock++
 	return nil

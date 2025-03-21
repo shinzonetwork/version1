@@ -7,6 +7,7 @@ steps:
         - name
         - logIndex
         - params
+        - log_id
 
   - name: normalize_fields
     type: normalize
@@ -22,6 +23,7 @@ steps:
         name: "name"
         logIndex: "logIndex"
         params: "params"
+        log_id: "log_id"
 
   - name: validate_event
     type: validate
@@ -30,16 +32,17 @@ steps:
         - name
         - logIndex
         - params
+        - log_id
 
   - name: store_event
     type: enrich
     config:
-      mutation: |
-        mutation {
+      query: |
+        mutation CreateEvent {
           create_Event(input: {
             name: $name
-            logIndex: $logIndex
             params: $params
+            log_id: $log_id
           }) {
             _docID
             name

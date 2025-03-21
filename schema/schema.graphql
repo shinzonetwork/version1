@@ -20,7 +20,7 @@ type Block {
 
 type Transaction {
     hash: String @index(unique: true)
-    blockHash: String
+    blockHash: String 
     blockNumber: String
     from: String
     to: String
