@@ -39,18 +39,11 @@ steps:
         - field: logIndex
           required: true
           type: number
-
-  - name: prepare_relationships
-    type: enrich
-    config:
-      fields:
-        transaction_id:
-          value: "${transactionHash}"
-        block_id:
-          value: "${blockHash}"
+        - field: transactionHash
+          required: true
 
   - name: store_log
-    type: store
+    type: enrich
     config:
       mutation: |
         mutation {
@@ -63,9 +56,7 @@ steps:
             transactionIndex: $transactionIndex,
             blockHash: $blockHash,
             logIndex: $logIndex,
-            removed: $removed,
-            transaction_id: $transaction_id,
-            block_id: $block_id
+            removed: $removed
           }) {
             address
             topics
@@ -76,11 +67,5 @@ steps:
             blockHash
             logIndex
             removed
-            transaction {
-              hash
-            }
-            block {
-              hash
-            }
           }
         }

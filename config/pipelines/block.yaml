@@ -32,7 +32,21 @@ steps:
         - transactionsRoot
         - receiptsRoot
         - miner
+        - extraData
       case: lower
+
+  - name: normalize_numbers
+    type: normalize
+    config:
+      fields:
+        - number
+        - timestamp
+        - difficulty
+        - gasUsed
+        - gasLimit
+        - nonce
+        - size
+      format: string
 
   - name: map_fields
     type: enrich
@@ -119,3 +133,31 @@ steps:
       defaults:
         logs: null
         events: []
+
+  - name: store_block
+    type: enrich
+    config:
+      mutation: |
+        mutation {
+          create_Block(input: {
+            hash: $hash,
+            number: $number,
+            time: $time,
+            parentHash: $parentHash,
+            difficulty: $difficulty,
+            gasUsed: $gasUsed,
+            gasLimit: $gasLimit,
+            nonce: $nonce,
+            miner: $miner,
+            size: $size,
+            stateRootHash: $stateRootHash,
+            uncleHash: $uncleHash,
+            transactionRootHash: $transactionRootHash,
+            receiptRootHash: $receiptRootHash,
+            extraData: $extraData
+          }) {
+            _docID
+            hash
+            number
+          }
+        }

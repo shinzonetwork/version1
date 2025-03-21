@@ -37,7 +37,7 @@ type Response struct {
 
 func NewIndexer(cfg *config.Config) (*Indexer, error) {
 	logConfig := zap.NewDevelopmentConfig()
-	logConfig.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	logConfig.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
 	logger, err := logConfig.Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
@@ -51,6 +51,8 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 		Pipelines: map[string]string{
 			"block":       "config/pipelines/block.yaml",
 			"transaction": "config/pipelines/transaction.yaml",
+			"log":         "config/pipelines/log.yaml",
+			"event":       "config/pipelines/event.yaml",
 		},
 		DefaultPipeline: "config/pipelines/block.yaml",
 		Options: struct {
@@ -130,19 +132,27 @@ func (i *Indexer) getHighestBlockNumber(ctx context.Context) (int, error) {
 		}
 	}`
 
-	resp, err := i.client.Post(
-		fmt.Sprintf("%s/api/v0/graphql", i.defraURL),
-		"application/json",
-		bytes.NewReader([]byte(fmt.Sprintf(`{"query": %q}`, query))),
-	)
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, query))))
 	if err != nil {
-		return 0, fmt.Errorf("failed to get highest block: %w", err)
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to send GraphQL request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
 		body, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("failed to get highest block: status=%d body=%s", resp.StatusCode, string(body))
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return 0, fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
+		}
+		return 0, fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	var result struct {
@@ -183,15 +193,28 @@ func (i *Indexer) blockExists(ctx context.Context, blockHash string) (bool, erro
 		}
 	}`, blockHash)
 
-	resp, err := i.client.Post(
-		fmt.Sprintf("%s/api/v0/graphql", i.defraURL),
-		"application/json",
-		bytes.NewReader([]byte(fmt.Sprintf(`{"query": %q}`, query))),
-	)
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, query))))
 	if err != nil {
-		return false, fmt.Errorf("failed to check if block exists: %w", err)
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to send GraphQL request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return false, fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
+		}
+		return false, fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
 
 	var result struct {
 		Data struct {
@@ -254,13 +277,6 @@ func (i *Indexer) postToCollection(ctx context.Context, collection string, data 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Log the request for debugging
-	// if i.logger.Core().Enabled(zap.DebugLevel) {
-	// 	i.logger.Debug("Sending collection request",
-	// 		zap.String("collection", collection),
-	// 		zap.String("url", url))
-	// }
-
 	// Send request
 	resp, err := i.client.Do(req)
 	if err != nil {
@@ -270,199 +286,399 @@ func (i *Indexer) postToCollection(ctx context.Context, collection string, data 
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
 		body, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return "", fmt.Errorf("failed to create document: %v", errorResp.Error)
+		}
 		return "", fmt.Errorf("failed to create document: status=%d body=%s", resp.StatusCode, string(body))
 	}
 
 	return primaryKey, nil
 }
 
+func (i *Indexer) postCollection(ctx context.Context, collection string, docID string, data map[string]interface{}) ([]byte, error) {
+	// First get the document to get its version
+	getURL := fmt.Sprintf("%s/api/v0/collections/%s/%s", i.defraURL, collection, docID)
+	req, err := http.NewRequestWithContext(ctx, "GET", getURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GET request: %w", err)
+	}
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get document: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return nil, fmt.Errorf("failed to get document: %v", errorResp.Error)
+		}
+		return nil, fmt.Errorf("failed to get document: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var docResponse struct {
+		Version string `json:"_version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&docResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode document response: %w", err)
+	}
+
+	// Now update the document with its version
+	patchURL := fmt.Sprintf("%s/api/v0/collections/%s/%s/%s", i.defraURL, collection, docID, docResponse.Version)
+
+	// Convert data to JSON
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	// Create PATCH request
+	patchReq, err := http.NewRequestWithContext(ctx, "PATCH", patchURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PATCH request: %w", err)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+
+	// Send request
+	patchResp, err := i.client.Do(patchReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer patchResp.Body.Close()
+
+	// Check response status
+	if patchResp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
+		body, _ := io.ReadAll(patchResp.Body)
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return nil, fmt.Errorf("failed to update document: %v", errorResp.Error)
+		}
+		return nil, fmt.Errorf("failed to update document: status=%d body=%s", patchResp.StatusCode, string(body))
+	}
+
+	// Read response body
+	body, err := io.ReadAll(patchResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return body, nil
+}
+
 func (i *Indexer) processNextBlock(ctx context.Context) error {
 	// Get block data from Alchemy
 	blockData, err := i.alchemy.GetBlockByNumber(ctx, i.lastBlock+1)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
 		return fmt.Errorf("failed to get block: %w", err)
 	}
 
-	// Log raw block data structure for debugging
-	if i.logger.Core().Enabled(zap.DebugLevel) {
-		i.logger.Debug("Raw block data structure",
-			zap.Any("block_data", blockData))
-	}
-
-	i.logger.Info("Retrieved block",
+	i.logger.Info("Processing block",
 		zap.Int("block_number", i.lastBlock+1),
-		zap.String("hash", blockData["hash"].(string)))
-
-	// Transform block data using LensVM pipeline
-	i.logger.Info("Transforming block data",
-		zap.Int("block_number", i.lastBlock+1))
-	transformedData, err := i.transformer.Transform(ctx, "block", blockData)
-	if err != nil {
-		if ctx.Err() != nil {
-			i.logger.Info("Context canceled, stopping block processing")
-			return nil
-		}
-		return fmt.Errorf("failed to transform block data: %w", err)
-	}
-
-	// Log transformed data structure for debugging
-	if i.logger.Core().Enabled(zap.DebugLevel) {
-		i.logger.Debug("Transformed block data structure",
-			zap.Any("block_data", transformedData))
-	}
-
-	// Block data is now at the root level
-	blockInfo := transformedData
-
-	// Extract transactions before storing block
-	transactions := []interface{}{}
-	if txs, ok := blockInfo["transactions"].([]interface{}); ok {
-		transactions = txs
-		delete(blockInfo, "transactions") // Remove transactions from block data
-	}
-
-	// Validate required block fields
-	hash, ok := blockInfo["hash"].(string)
-	if !ok {
-		return fmt.Errorf("invalid or missing hash field in block data")
-	}
+		zap.String("block_hash", blockData["hash"].(string)))
 
 	// Check if block already exists
-	exists, err := i.blockExists(ctx, hash)
+	exists, err := i.blockExists(ctx, blockData["hash"].(string))
 	if err != nil {
 		return fmt.Errorf("failed to check if block exists: %w", err)
 	}
-
 	if exists {
 		i.logger.Info("Block already exists, skipping",
 			zap.Int("block_number", i.lastBlock+1),
-			zap.String("hash", hash))
+			zap.String("block_hash", blockData["hash"].(string)))
 		i.lastBlock++
 		return nil
 	}
 
-	// Store block in DefraDB
-	blockID, err := i.postToCollection(ctx, "Block", blockInfo)
+	// Transform and store block
+	transformedBlock, err := i.transformer.Transform(ctx, "block", blockData)
 	if err != nil {
-		// Check if error is due to document already existing
-		if strings.Contains(err.Error(), "document with the given ID already exists") {
-			i.logger.Info("Block already exists (concurrent indexing), skipping",
-				zap.Int("block_number", i.lastBlock+1),
-				zap.String("hash", hash))
-			i.lastBlock++
-			return nil
-		}
-		return fmt.Errorf("failed to store block: %w", err)
+		return fmt.Errorf("failed to transform block: %w", err)
 	}
 
-	// Process transactions separately
+	// Remove relationship fields before storing
+	delete(transformedBlock, "transactions")
+
+	// Store block
+	blockID, err := i.postToCollection(ctx, "Block", transformedBlock)
+	if err != nil {
+		return fmt.Errorf("failed to store block: %w", err)
+	}
+	i.logger.Info("Stored block",
+		zap.Int("block_number", i.lastBlock+1),
+		zap.String("block_hash", blockData["hash"].(string)),
+		zap.String("block_id", blockID))
+
+	// Process transactions
+	transactions := blockData["transactions"].([]interface{})
 	for _, tx := range transactions {
-		txData, ok := tx.(map[string]interface{})
-		if !ok {
-			i.logger.Warn("Invalid transaction data format", zap.Any("tx", tx))
-			continue
+		txData := tx.(map[string]interface{})
+		i.logger.Info("Processing transaction",
+			zap.String("tx_hash", txData["hash"].(string)),
+			zap.String("block_hash", blockData["hash"].(string)))
+
+		// Transform and store transaction
+		transformedTx, err := i.transformer.Transform(ctx, "transaction", txData)
+		if err != nil {
+			return fmt.Errorf("failed to transform transaction: %w", err)
 		}
 
-		// Ensure logs field exists, even if null
-		if _, exists := txData["logs"]; !exists {
-			txData["logs"] = nil
-		}
+		// Remove relationship fields before storing
+		delete(transformedTx, "block")
+		delete(transformedTx, "logs")
 
-		// Ensure events array exists, even if empty
-		if _, exists := txData["events"]; !exists {
-			txData["events"] = []interface{}{}
-		}
-
-		// Extract logs before storing transaction
-		logs := []interface{}{}
-		if txLogs, ok := txData["logs"].([]interface{}); ok {
-			logs = txLogs
-			delete(txData, "logs") // Remove logs from transaction data
-		}
-
-		// Store transaction in DefraDB with block relationship
-		txData["block_transactions"] = map[string]interface{}{
-			"connect": blockID,
-		}
-		delete(txData, "block_id")
-
-		// Store transaction in DefraDB
-		txID, err := i.postToCollection(ctx, "Transaction", txData)
+		txID, err := i.postToCollection(ctx, "Transaction", transformedTx)
 		if err != nil {
 			return fmt.Errorf("failed to store transaction: %w", err)
 		}
+		i.logger.Info("Stored transaction",
+			zap.String("tx_hash", txData["hash"].(string)),
+			zap.String("tx_id", txID))
 
-		// Process logs if they exist
+		// Update block-transaction relationship from Block side
+		if err := i.updateBlockTransactionRelation(ctx, blockID, txID); err != nil {
+			return fmt.Errorf("failed to update block-transaction relation: %w", err)
+		}
+
+		// Process logs
+		logs := txData["logs"].([]interface{})
 		for _, log := range logs {
-			logData, ok := log.(map[string]interface{})
-			if !ok {
-				i.logger.Warn("Invalid log data format", zap.Any("log", log))
-				continue
+			logData := log.(map[string]interface{})
+			i.logger.Info("Processing log",
+				zap.String("tx_hash", txData["hash"].(string)),
+				zap.String("log_index", logData["logIndex"].(string)))
+
+			// Transform and store log
+			transformedLog, err := i.transformer.Transform(ctx, "log", logData)
+			if err != nil {
+				return fmt.Errorf("failed to transform log: %w", err)
 			}
 
-			// Store log in DefraDB
-			logID, err := i.postToCollection(ctx, "Log", logData)
+			// Remove relationship fields before storing
+			delete(transformedLog, "transaction")
+			delete(transformedLog, "events")
+
+			logID, err := i.postToCollection(ctx, "Log", transformedLog)
 			if err != nil {
 				return fmt.Errorf("failed to store log: %w", err)
 			}
+			i.logger.Info("Stored log",
+				zap.String("tx_hash", txData["hash"].(string)),
+				zap.String("log_index", logData["logIndex"].(string)),
+				zap.String("log_id", logID))
 
-			// Update transaction to connect with the log
-			err = i.updateTransactionLogRelation(ctx, txID, logID)
-			if err != nil {
+			// Update transaction-log relationship from Transaction side
+			if err := i.updateTransactionLogRelation(ctx, txID, logID); err != nil {
 				return fmt.Errorf("failed to update transaction-log relation: %w", err)
+			}
+
+			// Process events
+			events := logData["events"].([]interface{})
+			for _, event := range events {
+				eventData := event.(map[string]interface{})
+				i.logger.Info("Processing event",
+					zap.String("tx_hash", txData["hash"].(string)),
+					zap.String("log_index", logData["logIndex"].(string)),
+					zap.String("event_name", eventData["name"].(string)))
+
+				// Transform and store event
+				transformedEvent, err := i.transformer.Transform(ctx, "event", eventData)
+				if err != nil {
+					return fmt.Errorf("failed to transform event: %w", err)
+				}
+
+				// Remove relationship fields before storing
+				delete(transformedEvent, "log")
+
+				eventID, err := i.postToCollection(ctx, "Event", transformedEvent)
+				if err != nil {
+					return fmt.Errorf("failed to store event: %w", err)
+				}
+				i.logger.Info("Stored event",
+					zap.String("tx_hash", txData["hash"].(string)),
+					zap.String("log_index", logData["logIndex"].(string)),
+					zap.String("event_name", eventData["name"].(string)),
+					zap.String("event_id", eventID))
+
+				// Update log-event relationship from Log side
+				if err := i.updateLogEventRelation(ctx, logID, eventID); err != nil {
+					return fmt.Errorf("failed to update log-event relation: %w", err)
+				}
 			}
 		}
 	}
-
-	i.logger.Info("Successfully processed block",
-		zap.Int("block_number", i.lastBlock+1),
-		zap.String("hash", hash))
 
 	i.lastBlock++
 	return nil
 }
 
-func (i *Indexer) postGraphQL(ctx context.Context, mutation string) ([]byte, error) {
-	// i.logger.Debug("sending mutation", zap.String("mutation", mutation))
-
-	resp, err := i.client.Post(
-		fmt.Sprintf("%s/api/v0/graphql", i.defraURL),
-		"application/json",
-		bytes.NewReader([]byte(fmt.Sprintf(`{"query": %q}`, mutation))),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+func (i *Indexer) updateBlockTransactionRelation(ctx context.Context, blockID, txID string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
-	// i.logger.Debug("store response", zap.ByteString("body", body))
-	return body, nil
-}
-
-func (i *Indexer) updateTransactionLogRelation(ctx context.Context, txID, logID string) error {
+	// Only update from Block side since it's the primary side of the relationship
 	mutation := fmt.Sprintf(`mutation {
-		update_Transaction(docID: %q, input: {
-			transaction_logs: {
+		update_Block(docID: %q, input: {
+			transactions: {
 				connect: [%q]
 			}
 		}) {
 			_docID
+			transactions {
+				_docID
+			}
+		}
+	}`, blockID, txID)
+
+	i.logger.Info("Updating block-transaction relation",
+		zap.String("block_id", blockID),
+		zap.String("tx_id", txID))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send GraphQL request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error interface{} `json:"error"`
+		}
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
+		}
+		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	i.logger.Info("Updated block-transaction relation",
+		zap.String("block_id", blockID),
+		zap.String("tx_id", txID),
+		zap.String("response", string(body)))
+
+	return nil
+}
+
+func (i *Indexer) updateTransactionLogRelation(ctx context.Context, txID, logID string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// Only update from Transaction side since it's the primary side of the relationship
+	mutation := fmt.Sprintf(`mutation {
+		update_Transaction(docID: %q, input: {
+			logs: {
+				connect: [%q]
+			}
+		}) {
+			_docID
+			logs {
+				_docID
+			}
 		}
 	}`, txID, logID)
 
-	_, err := i.postGraphQL(ctx, mutation)
+	i.logger.Info("Updating transaction-log relation",
+		zap.String("tx_id", txID),
+		zap.String("log_id", logID))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
 	if err != nil {
-		return fmt.Errorf("failed to update transaction-log relation: %w", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send GraphQL request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error any `json:"error"`
+		}
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
+		}
+		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	i.logger.Info("Updated transaction-log relation",
+		zap.String("tx_id", txID),
+		zap.String("log_id", logID),
+		zap.String("response", string(body)))
+
+	return nil
+}
+
+func (i *Indexer) updateLogEventRelation(ctx context.Context, logID, eventID string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// Only update from Log side since it's the primary side of the relationship
+	mutation := fmt.Sprintf(`mutation {
+		update_Log(docID: %q, input: {
+			events: {
+				connect: [%q]
+			}
+		}) {
+			_docID
+			events {
+				_docID
+			}
+		}
+	}`, logID, eventID)
+
+	i.logger.Info("Updating log-event relation",
+		zap.String("log_id", logID),
+		zap.String("event_id", eventID))
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := i.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send GraphQL request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Error any `json:"error"`
+		}
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
+		}
+		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	i.logger.Info("Updated log-event relation",
+		zap.String("log_id", logID),
+		zap.String("event_id", eventID),
+		zap.String("response", string(body)))
 
 	return nil
 }

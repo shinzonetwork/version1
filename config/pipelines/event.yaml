@@ -50,7 +50,7 @@ steps:
           value: "${blockHash}"
 
   - name: store_event
-    type: store
+    type: enrich
     config:
       mutation: |
         mutation {

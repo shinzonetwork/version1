@@ -10,7 +10,7 @@ steps:
         - from
         - to
 
-  - name: format_numbers
+  - name: normalize_numbers
     type: normalize
     config:
       fields:
@@ -22,7 +22,7 @@ steps:
         - maxPriorityFeePerGas
         - chainId
         - type
-      format: hex
+      format: string
 
   - name: format_signatures
     type: normalize
@@ -68,22 +68,15 @@ steps:
         - blockHash
         - blockNumber
         - from
-        - to
         - value
         - gas
         - gasPrice
         - input
         - nonce
         - transactionIndex
-        - r
-        - s
-        - v
-        - type
-        - chainId
-        - yParity
 
   - name: prepare_transaction
-    type: transform
+    type: enrich
     config:
       fields:
         network:
@@ -96,23 +89,8 @@ steps:
           value: ""
 
   - name: store_transaction
-    type: store
+    type: enrich
     config:
-      structure:
-        required:
-          - hash
-          - from
-          - to
-          - value
-          - gas
-          - gasPrice
-          - nonce
-          - input
-          - yParity
-        optional:
-          - events
-      defaults:
-        events: []
       mutation: |
         mutation {
           create_Transaction(input: {
@@ -139,41 +117,8 @@ steps:
             indexedAt: $indexedAt,
             network: $network
           }) {
+            _docID
             hash
             blockHash
-            blockNumber
-            from
-            to
-            value
-            gas
-            gasPrice
-            input
-            nonce
-            transactionIndex
-            r
-            s
-            v
-            type
-            yParity
-            chainId
-            maxFeePerGas
-            maxPriorityFeePerGas
-            accessList
-            indexedAt
-            network
-          }
-        }
-
-  - name: connect_to_block
-    type: store
-    config:
-      mutation: |
-        mutation {
-          update_Transaction(by: { hash: $hash }, input: {
-            block: {
-              connect: $blockHash
-            }
-          }) {
-            hash
           }
         }

@@ -25,3 +25,7 @@ go.work.sum
 .env
 
 /schema/types/*
+
+notes/*.json
+
+*.log

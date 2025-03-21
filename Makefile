@@ -13,8 +13,8 @@ defra-playground:
 build:
 	go build -o bin/indexer cmd/indexer/main.go
 
-start: build
-	./bin/indexer > indexer.log 2>&1 &
+start: 
+	./bin/indexer > indexer.log 2>&1
 
 github:
 	git add .

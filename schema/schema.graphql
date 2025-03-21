@@ -16,7 +16,6 @@ type Block {
   extraData: String
   # Relationships
   transactions: [Transaction] @relation(name: "block_transactions")
-  events: [Event] @relation(name: "block_events")
 }
 
 type Transaction {
@@ -46,10 +45,9 @@ type Transaction {
   # Relationships
   block: Block @relation(name: "block_transactions")
   logs: [Log] @relation(name: "transaction_logs")
-  events: [Event] @relation(name: "transaction_events")
 }
 
-type Log  {
+type Log {
   address: String
   topics: [String]
   data: String
@@ -61,22 +59,13 @@ type Log  {
   removed: Boolean
   # Relationships
   transaction: Transaction @relation(name: "transaction_logs")
-  block: Block @relation(name: "block_events")
+  events: [Event] @relation(name: "log_events")
 }
 
 type Event {
-  address: String
-  topics: [String]
-  data: String
-  blockNumber: String
-  transactionHash: String
-  transactionIndex: String
-  blockHash: String
   logIndex: String @primary
   name: String
-  args: String
-  removed: Boolean
+  params: String
   # Relationships
-  transaction: Transaction @relation(name: "transaction_events")
-  block: Block @relation(name: "block_events")
+  log: Log @relation(name: "log_events")
 }
