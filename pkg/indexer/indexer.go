@@ -379,7 +379,7 @@ func (i *Indexer) processNextBlock(ctx context.Context) error {
 	// Get block data from Alchemy
 	blockData, err := i.alchemy.GetBlockByNumber(ctx, i.lastBlock+1)
 	if err != nil {
-		return fmt.Errorf("failed to get block: %w", err)
+		return fmt.Errorf("failed to get block %d: %w", i.lastBlock+1, err)
 	}
 
 	i.logger.Info("Processing block",
@@ -389,7 +389,7 @@ func (i *Indexer) processNextBlock(ctx context.Context) error {
 	// Check if block already exists
 	exists, err := i.blockExists(ctx, blockData["hash"].(string))
 	if err != nil {
-		return fmt.Errorf("failed to check if block exists: %w", err)
+		return fmt.Errorf("failed to check if block %d exists: %w", i.lastBlock+1, err)
 	}
 	if exists {
 		i.logger.Info("Block already exists, skipping",
@@ -399,286 +399,101 @@ func (i *Indexer) processNextBlock(ctx context.Context) error {
 		return nil
 	}
 
-	// Transform and store block
+	// Transform and store block with transactions
 	transformedBlock, err := i.transformer.Transform(ctx, "block", blockData)
 	if err != nil {
-		return fmt.Errorf("failed to transform block: %w", err)
+		return fmt.Errorf("failed to transform block %d: %w", i.lastBlock+1, err)
 	}
 
-	// Remove relationship fields before storing
-	delete(transformedBlock, "transactions")
-
-	// Store block
-	blockID, err := i.postToCollection(ctx, "Block", transformedBlock)
-	if err != nil {
-		return fmt.Errorf("failed to store block: %w", err)
-	}
-	i.logger.Info("Stored block",
-		zap.Int("block_number", i.lastBlock+1),
-		zap.String("block_hash", blockData["hash"].(string)),
-		zap.String("block_id", blockID))
-
-	// Process transactions
+	// Process transactions first so we have their IDs
 	transactions := blockData["transactions"].([]interface{})
+	var txDocs []map[string]interface{}
 	for _, tx := range transactions {
 		txData := tx.(map[string]interface{})
-		i.logger.Info("Processing transaction",
+		i.logger.Debug("Processing transaction",
 			zap.String("tx_hash", txData["hash"].(string)),
 			zap.String("block_hash", blockData["hash"].(string)))
 
 		// Transform and store transaction
 		transformedTx, err := i.transformer.Transform(ctx, "transaction", txData)
 		if err != nil {
-			return fmt.Errorf("failed to transform transaction: %w", err)
+			return fmt.Errorf("failed to transform transaction in block %d: %w", i.lastBlock+1, err)
 		}
 
-		// Remove relationship fields before storing
-		delete(transformedTx, "block")
-		delete(transformedTx, "logs")
-
-		txID, err := i.postToCollection(ctx, "Transaction", transformedTx)
-		if err != nil {
-			return fmt.Errorf("failed to store transaction: %w", err)
+		// Process logs first so we have their IDs
+		var logs []interface{}
+		if logsData, ok := txData["logs"]; ok && logsData != nil {
+			logs = logsData.([]interface{})
 		}
-		i.logger.Info("Stored transaction",
-			zap.String("tx_hash", txData["hash"].(string)),
-			zap.String("tx_id", txID))
-
-		// Update block-transaction relationship from Block side
-		if err := i.updateBlockTransactionRelation(ctx, blockID, txID); err != nil {
-			return fmt.Errorf("failed to update block-transaction relation: %w", err)
-		}
-
-		// Process logs
-		logs := txData["logs"].([]interface{})
+		var logDocs []map[string]interface{}
 		for _, log := range logs {
 			logData := log.(map[string]interface{})
-			i.logger.Info("Processing log",
+			logIndex, ok := logData["logIndex"].(string)
+			if !ok {
+				return fmt.Errorf("missing or invalid logIndex field in log data for block %d, tx %s", i.lastBlock+1, txData["hash"].(string))
+			}
+			i.logger.Debug("Processing log",
 				zap.String("tx_hash", txData["hash"].(string)),
-				zap.String("log_index", logData["logIndex"].(string)))
+				zap.String("log_index", logIndex))
 
 			// Transform and store log
 			transformedLog, err := i.transformer.Transform(ctx, "log", logData)
 			if err != nil {
-				return fmt.Errorf("failed to transform log: %w", err)
+				return fmt.Errorf("failed to transform log in block %d, tx %s: %w", i.lastBlock+1, txData["hash"].(string), err)
 			}
 
-			// Remove relationship fields before storing
-			delete(transformedLog, "transaction")
-			delete(transformedLog, "events")
-
-			logID, err := i.postToCollection(ctx, "Log", transformedLog)
-			if err != nil {
-				return fmt.Errorf("failed to store log: %w", err)
+			// Process events first
+			var events []interface{}
+			if eventsData, ok := logData["events"]; ok && eventsData != nil {
+				events = eventsData.([]interface{})
 			}
-			i.logger.Info("Stored log",
-				zap.String("tx_hash", txData["hash"].(string)),
-				zap.String("log_index", logData["logIndex"].(string)),
-				zap.String("log_id", logID))
-
-			// Update transaction-log relationship from Transaction side
-			if err := i.updateTransactionLogRelation(ctx, txID, logID); err != nil {
-				return fmt.Errorf("failed to update transaction-log relation: %w", err)
-			}
-
-			// Process events
-			events := logData["events"].([]interface{})
+			var eventDocs []map[string]interface{}
 			for _, event := range events {
 				eventData := event.(map[string]interface{})
-				i.logger.Info("Processing event",
+				i.logger.Debug("Processing event",
 					zap.String("tx_hash", txData["hash"].(string)),
-					zap.String("log_index", logData["logIndex"].(string)),
+					zap.String("log_index", logIndex),
 					zap.String("event_name", eventData["name"].(string)))
 
 				// Transform and store event
 				transformedEvent, err := i.transformer.Transform(ctx, "event", eventData)
 				if err != nil {
-					return fmt.Errorf("failed to transform event: %w", err)
+					return fmt.Errorf("failed to transform event in block %d, tx %s, log %s: %w", i.lastBlock+1, txData["hash"].(string), logIndex, err)
 				}
 
-				// Remove relationship fields before storing
-				delete(transformedEvent, "log")
-
-				eventID, err := i.postToCollection(ctx, "Event", transformedEvent)
-				if err != nil {
-					return fmt.Errorf("failed to store event: %w", err)
-				}
-				i.logger.Info("Stored event",
+				eventDocs = append(eventDocs, transformedEvent)
+				i.logger.Debug("Prepared event",
 					zap.String("tx_hash", txData["hash"].(string)),
-					zap.String("log_index", logData["logIndex"].(string)),
-					zap.String("event_name", eventData["name"].(string)),
-					zap.String("event_id", eventID))
-
-				// Update log-event relationship from Log side
-				if err := i.updateLogEventRelation(ctx, logID, eventID); err != nil {
-					return fmt.Errorf("failed to update log-event relation: %w", err)
-				}
+					zap.String("log_index", logIndex))
 			}
+
+			// Store log with events
+			transformedLog["events"] = eventDocs
+			logDocs = append(logDocs, transformedLog)
+			i.logger.Debug("Prepared log",
+				zap.String("tx_hash", txData["hash"].(string)),
+				zap.String("log_index", logIndex))
 		}
+
+		// Store transaction with logs
+		transformedTx["logs"] = logDocs
+		txDocs = append(txDocs, transformedTx)
+		i.logger.Debug("Prepared transaction",
+			zap.String("tx_hash", txData["hash"].(string)))
 	}
+
+	// Store block with transactions
+	transformedBlock["transactions"] = txDocs
+	blockID, err := i.postToCollection(ctx, "Block", transformedBlock)
+	if err != nil {
+		return fmt.Errorf("failed to store block %d: %w", i.lastBlock+1, err)
+	}
+	i.logger.Info("Processed block",
+		zap.Int("block_number", i.lastBlock+1),
+		zap.String("block_hash", blockData["hash"].(string)),
+		zap.String("block_id", blockID),
+		zap.Int("transactions", len(txDocs)))
 
 	i.lastBlock++
-	return nil
-}
-
-func (i *Indexer) updateBlockTransactionRelation(ctx context.Context, blockID, txID string) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	// Only update from Block side since it's the primary side of the relationship
-	mutation := fmt.Sprintf(`mutation {
-		update_Block(docID: %q, input: {
-			transactions: {
-				connect: [%q]
-			}
-		}) {
-			_docID
-			transactions {
-				_docID
-			}
-		}
-	}`, blockID, txID)
-
-	i.logger.Info("Updating block-transaction relation",
-		zap.String("block_id", blockID),
-		zap.String("tx_id", txID))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := i.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send GraphQL request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		var errorResp struct {
-			Error interface{} `json:"error"`
-		}
-		if err := json.Unmarshal(body, &errorResp); err == nil {
-			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
-		}
-		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	i.logger.Info("Updated block-transaction relation",
-		zap.String("block_id", blockID),
-		zap.String("tx_id", txID),
-		zap.String("response", string(body)))
-
-	return nil
-}
-
-func (i *Indexer) updateTransactionLogRelation(ctx context.Context, txID, logID string) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	// Only update from Transaction side since it's the primary side of the relationship
-	mutation := fmt.Sprintf(`mutation {
-		update_Transaction(docID: %q, input: {
-			logs: {
-				connect: [%q]
-			}
-		}) {
-			_docID
-			logs {
-				_docID
-			}
-		}
-	}`, txID, logID)
-
-	i.logger.Info("Updating transaction-log relation",
-		zap.String("tx_id", txID),
-		zap.String("log_id", logID))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := i.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send GraphQL request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		var errorResp struct {
-			Error any `json:"error"`
-		}
-		if err := json.Unmarshal(body, &errorResp); err == nil {
-			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
-		}
-		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	i.logger.Info("Updated transaction-log relation",
-		zap.String("tx_id", txID),
-		zap.String("log_id", logID),
-		zap.String("response", string(body)))
-
-	return nil
-}
-
-func (i *Indexer) updateLogEventRelation(ctx context.Context, logID, eventID string) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-
-	// Only update from Log side since it's the primary side of the relationship
-	mutation := fmt.Sprintf(`mutation {
-		update_Log(docID: %q, input: {
-			events: {
-				connect: [%q]
-			}
-		}) {
-			_docID
-			events {
-				_docID
-			}
-		}
-	}`, logID, eventID)
-
-	i.logger.Info("Updating log-event relation",
-		zap.String("log_id", logID),
-		zap.String("event_id", eventID))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer([]byte(fmt.Sprintf(`{"query": %q}`, mutation))))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := i.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send GraphQL request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		var errorResp struct {
-			Error any `json:"error"`
-		}
-		if err := json.Unmarshal(body, &errorResp); err == nil {
-			return fmt.Errorf("GraphQL request failed: %v", errorResp.Error)
-		}
-		return fmt.Errorf("GraphQL request failed: status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	i.logger.Info("Updated log-event relation",
-		zap.String("log_id", logID),
-		zap.String("event_id", eventID),
-		zap.String("response", string(body)))
-
 	return nil
 }

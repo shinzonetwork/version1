@@ -1,81 +1,93 @@
 name: transaction
 steps:
-  - name: normalize_fields
+  - name: filter_raw_fields
+    type: filter
+    config:
+      fields:
+        - hash
+        - blockHash
+        - blockNumber
+        - from
+        - to
+        - gas
+        - gasPrice
+        - input
+        - nonce
+        - value
+        - type
+        - chainId
+        - v
+        - r
+        - s
+        - logs
+
+  - name: normalize_addresses
     type: normalize
     config:
-      case: lower
       fields:
         - hash
         - blockHash
         - from
         - to
+      case: lower
 
   - name: normalize_numbers
     type: normalize
     config:
       fields:
-        - value
-        - nonce
-        - gasPrice
+        - blockNumber
         - gas
-        - maxFeePerGas
-        - maxPriorityFeePerGas
-        - chainId
+        - gasPrice
+        - nonce
+        - value
         - type
+        - chainId
+        - v
       format: string
 
-  - name: format_signatures
-    type: normalize
-    config:
-      fields:
-        - r
-        - s
-        - v
-      format: hex
-
-  - name: decode_input
+  - name: map_fields
     type: enrich
     config:
       fields:
-        input_data:
-          raw: "input"
-          method: "substr(input, 0, 10)"
-          params: "substr(input, 10)"
+        hash: "hash"
+        blockHash: "blockHash"
+        blockNumber: "blockNumber"
+        from: "from"
+        to: "to"
+        gas: "gas"
+        gasPrice: "gasPrice"
+        input: "input"
+        nonce: "nonce"
+        value: "value"
+        type: "type"
+        chainId: "chainId"
+        v: "v"
+        r: "r"
+        s: "s"
+        logs: "logs"
 
-  - name: detect_contract_interaction
+  - name: process_logs
     type: enrich
     config:
-      conditions:
-        - if: "input_data.method == '0xa9059cbb'"
-          then:
-            type: "transfer"
-            token: "to"
-            recipient: "0x${substr(input_data.params, 24, 64)}"
-            amount: "hex_to_int(substr(input_data.params, 64))"
-        - if: "input_data.method == '0x23b872dd'"
-          then:
-            type: "transferFrom"
-            token: "to"
-            sender: "0x${substr(input_data.params, 24, 64)}"
-            recipient: "0x${substr(input_data.params, 88, 64)}"
-            amount: "hex_to_int(substr(input_data.params, 128))"
+      arrayField: "logs"
+      structure:
+        required:
+          - logIndex
+          - transactionHash
+        optional:
+          - events
+          - address
+          - topics
+          - data
+          - blockNumber
+          - blockHash
+          - transactionIndex
+          - removed
+      defaults:
+        events: []
+        removed: false
 
-  - name: validate_fields
-    type: validate
-    config:
-      required:
-        - hash
-        - blockHash
-        - blockNumber
-        - from
-        - value
-        - gas
-        - gasPrice
-        - input
-        - nonce
-        - transactionIndex
-
-  - name: prepare_transaction
+  - name: prepare_fields
     type: enrich
     config:
       fields:
@@ -87,6 +99,31 @@ steps:
           value: ""
         yParity:
           value: ""
+        maxFeePerGas:
+          value: ""
+        maxPriorityFeePerGas:
+          value: ""
+        status:
+          value: true
+
+  - name: validate_transaction
+    type: validate
+    config:
+      required:
+        - hash
+        - blockHash
+        - blockNumber
+        - from
+        - gas
+        - gasPrice
+        - input
+        - nonce
+        - value
+        - type
+        - chainId
+        - v
+        - r
+        - s
 
   - name: store_transaction
     type: enrich
@@ -94,28 +131,29 @@ steps:
       mutation: |
         mutation {
           create_Transaction(input: {
-            hash: $hash,
-            blockHash: $blockHash,
-            blockNumber: $blockNumber,
-            from: $from,
-            to: $to,
-            value: $value,
-            gas: $gas,
-            gasPrice: $gasPrice,
-            input: $input,
-            nonce: $nonce,
-            transactionIndex: $transactionIndex,
-            r: $r,
-            s: $s,
-            v: $v,
-            type: $type,
-            yParity: $yParity,
-            chainId: $chainId,
-            maxFeePerGas: $maxFeePerGas,
-            maxPriorityFeePerGas: $maxPriorityFeePerGas,
-            accessList: $accessList,
-            indexedAt: $indexedAt,
+            hash: $hash
+            blockHash: $blockHash
+            blockNumber: $blockNumber
+            from: $from
+            to: $to
+            gas: $gas
+            gasPrice: $gasPrice
+            input: $input
+            nonce: $nonce
+            value: $value
+            type: $type
+            chainId: $chainId
+            v: $v
+            r: $r
+            s: $s
             network: $network
+            indexedAt: $indexedAt
+            yParity: $yParity
+            maxFeePerGas: $maxFeePerGas
+            maxPriorityFeePerGas: $maxPriorityFeePerGas
+            accessList: $accessList
+            status: $status
+            logs: $logs
           }) {
             _docID
             hash

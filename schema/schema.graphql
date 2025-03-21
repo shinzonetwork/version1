@@ -1,71 +1,71 @@
 type Block {
-  hash: String @primary
-  number: String
-  time: String
-  parentHash: String
-  difficulty: String
-  gasUsed: String
-  gasLimit: String
-  nonce: String
-  miner: String
-  size: String
-  stateRootHash: String
-  uncleHash: String
-  transactionRootHash: String
-  receiptRootHash: String
-  extraData: String
-  # Relationships
-  transactions: [Transaction] @relation(name: "block_transactions")
+    hash: String @index(unique: true)
+    number: String
+    time: String
+    parentHash: String
+    difficulty: String
+    gasUsed: String
+    gasLimit: String
+    nonce: String
+    miner: String
+    size: String
+    stateRootHash: String
+    uncleHash: String
+    transactionRootHash: String
+    receiptRootHash: String
+    extraData: String
+    # Relationships
+    transactions: [Transaction] @relation(name: "block_transactions")
 }
 
 type Transaction {
-  hash: String @primary
-  blockHash: String
-  blockNumber: String
-  from: String
-  to: String
-  value: String
-  gas: String
-  gasPrice: String
-  input: String
-  nonce: String
-  transactionIndex: String
-  r: String
-  s: String
-  v: String
-  type: String
-  yParity: String
-  chainId: String
-  maxFeePerGas: String
-  maxPriorityFeePerGas: String
-  accessList: String
-  indexedAt: String
-  network: String
-  status: Boolean
-  # Relationships
-  block: Block @relation(name: "block_transactions")
-  logs: [Log] @relation(name: "transaction_logs")
+    hash: String @index(unique: true)
+    blockHash: String
+    blockNumber: String
+    from: String
+    to: String
+    value: String
+    gas: String
+    gasPrice: String
+    input: String
+    nonce: String
+    transactionIndex: String
+    r: String
+    s: String
+    v: String
+    type: String
+    yParity: String
+    chainId: String
+    maxFeePerGas: String
+    maxPriorityFeePerGas: String
+    accessList: String
+    indexedAt: String
+    network: String
+    status: Boolean
+    # Relationships
+    block: Block @relation(name: "block_transactions")
+    logs: [Log] @relation(name: "transaction_logs")
 }
 
-type Log {
-  address: String
-  topics: [String]
-  data: String
-  blockNumber: String
-  transactionHash: String
-  transactionIndex: String
-  blockHash: String
-  logIndex: String @primary
-  removed: Boolean
-  # Relationships
-  transaction: Transaction @relation(name: "transaction_logs")
-  events: [Event] @relation(name: "log_events")
+type Log @index(unique: true, includes: [{field: "logIndex"}, {field: "transaction"}]) {
+    address: String
+    topics: [String]
+    data: String
+    blockNumber: String
+    transactionHash: String
+    transactionIndex: String
+    blockHash: String
+    logIndex: String
+    removed: Boolean
+    # Relationships
+    transaction: Transaction @relation(name: "transaction_logs")
+    events: [Event] @relation(name: "log_events")
 }
 
-type Event {
-  logIndex: String @primary
-  name: String
-  params: String
-  # Relationships
-  log: Log @relation(name: "log_events")
+type Event @index(unique: true, includes: [{field: "logIndex"}, {field: "log"}]) {
+    logIndex: String
+    name: String
+    params: String
+    # Relationships
+    log: Log @relation(name: "log_events")
 }

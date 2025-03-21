@@ -109,7 +109,6 @@ steps:
         - transactionRootHash
         - receiptRootHash
         - extraData
-      optional:
         - transactions
 
   - name: process_transactions
@@ -119,20 +118,38 @@ steps:
       structure:
         required:
           - hash
-          - from
-          - to
-          - value
-          - gas
-          - gasPrice
-          - nonce
-          - input
-          - yParity
         optional:
           - logs
-          - events
       defaults:
-        logs: null
-        events: []
+        logs: []
+
+  - name: prepare_transactions
+    type: enrich
+    config:
+      fields:
+        transaction_hashes:
+          value: "map(transactions, 'hash')"
+
+  - name: validate_block
+    type: validate
+    config:
+      required:
+        - hash
+        - number
+        - time
+        - parentHash
+        - difficulty
+        - gasUsed
+        - gasLimit
+        - nonce
+        - miner
+        - size
+        - stateRootHash
+        - uncleHash
+        - transactionRootHash
+        - receiptRootHash
+        - extraData
+        - transactions
 
   - name: store_block
     type: enrich
@@ -140,21 +157,24 @@ steps:
       mutation: |
         mutation {
           create_Block(input: {
-            hash: $hash,
-            number: $number,
-            time: $time,
-            parentHash: $parentHash,
-            difficulty: $difficulty,
-            gasUsed: $gasUsed,
-            gasLimit: $gasLimit,
-            nonce: $nonce,
-            miner: $miner,
-            size: $size,
-            stateRootHash: $stateRootHash,
-            uncleHash: $uncleHash,
-            transactionRootHash: $transactionRootHash,
-            receiptRootHash: $receiptRootHash,
+            hash: $hash
+            number: $number
+            time: $time
+            parentHash: $parentHash
+            difficulty: $difficulty
+            gasUsed: $gasUsed
+            gasLimit: $gasLimit
+            nonce: $nonce
+            miner: $miner
+            size: $size
+            stateRootHash: $stateRootHash
+            uncleHash: $uncleHash
+            transactionRootHash: $transactionRootHash
+            receiptRootHash: $receiptRootHash
             extraData: $extraData
+            transactions: {
+              connect: $transaction_hashes
+            }
           }) {
             _docID
             hash

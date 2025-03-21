@@ -1,12 +1,37 @@
 name: log
 steps:
+  - name: filter_raw_fields
+    type: filter
+    config:
+      fields:
+        - address
+        - topics
+        - data
+        - blockNumber
+        - transactionHash
+        - transactionIndex
+        - blockHash
+        - logIndex
+        - removed
+
   - name: normalize_addresses
     type: normalize
     config:
       fields:
         - address
         - topics[*]
+        - blockHash
+        - transactionHash
       case: lower
+
+  - name: normalize_numbers
+    type: normalize
+    config:
+      fields:
+        - blockNumber
+        - transactionIndex
+        - logIndex
+      format: string
 
   - name: decode_topics
     type: enrich
@@ -23,6 +48,20 @@ steps:
           - name: "topic3"
             value: "topics[3]"
             decode: "hex"
+
+  - name: map_fields
+    type: enrich
+    config:
+      fields:
+        address: "address"
+        topics: "topics"
+        data: "data"
+        blockNumber: "blockNumber"
+        transactionHash: "transactionHash"
+        transactionIndex: "transactionIndex"
+        blockHash: "blockHash"
+        logIndex: "logIndex"
+        removed: "removed"
 
   - name: validate_log
     type: validate
@@ -41,6 +80,16 @@ steps:
           type: number
         - field: transactionHash
           required: true
+          format: "^0x[a-f0-9]{64}$"
+        - field: blockHash
+          required: true
+          format: "^0x[a-f0-9]{64}$"
+        - field: blockNumber
+          required: true
+          type: number
+        - field: transactionIndex
+          required: true
+          type: number
 
   - name: store_log
     type: enrich
@@ -48,24 +97,18 @@ steps:
       mutation: |
         mutation {
           create_Log(input: {
-            address: $address,
-            topics: $topics,
-            data: $data,
-            blockNumber: $blockNumber,
-            transactionHash: $transactionHash,
-            transactionIndex: $transactionIndex,
-            blockHash: $blockHash,
-            logIndex: $logIndex,
+            address: $address
+            topics: $topics
+            data: $data
+            blockNumber: $blockNumber
+            transactionHash: $transactionHash
+            transactionIndex: $transactionIndex
+            blockHash: $blockHash
+            logIndex: $logIndex
             removed: $removed
           }) {
+            _docID
             address
-            topics
-            data
-            blockNumber
             transactionHash
-            transactionIndex
-            blockHash
-            logIndex
-            removed
           }
         }
