@@ -53,7 +53,7 @@ steps:
       fields:
         hash: "hash"
         number: "number"
-        time: "timestamp"
+        timestamp: "timestamp"
         parentHash: "parentHash"
         difficulty: "difficulty"
         gasUsed: "gasUsed"
@@ -64,28 +64,8 @@ steps:
         stateRootHash: "stateRoot"
         uncleHash: "sha3Uncles"
         transactionRootHash: "transactionsRoot"
-        receiptRootHash: "receiptsRoot"
+        receiptsRootHash: "receiptsRoot"
         extraData: "extraData"
-
-  - name: filter_fields
-    type: filter
-    config:
-      fields:
-        - hash
-        - number
-        - time
-        - parentHash
-        - difficulty
-        - gasUsed
-        - gasLimit
-        - nonce
-        - miner
-        - size
-        - stateRootHash
-        - uncleHash
-        - transactionRootHash
-        - receiptRootHash
-        - extraData
 
   - name: validate_fields
     type: validate
@@ -101,18 +81,50 @@ steps:
         - nonce
         - miner
         - size
-        - stateRootHash
-        - uncleHash
-        - transactionRootHash
-        - receiptRootHash
+        - stateRoot
+        - sha3Uncles
+        - transactionsRoot
+        - receiptsRoot
         - extraData
 
   - name: store_block
     type: enrich
     config:
       query: |
-        mutation CreateBlock($input: BlockInput!) {
-          create_Block(input: $input) {
+        mutation CreateBlock(
+          $hash: String!,
+          $number: String!,
+          $timestamp: String!,
+          $parentHash: String!,
+          $difficulty: String!,
+          $gasUsed: String!,
+          $gasLimit: String!,
+          $nonce: String!,
+          $miner: String!,
+          $size: String!,
+          $stateRoot: String!,
+          $sha3Uncles: String!,
+          $transactionsRoot: String!,
+          $receiptsRoot: String!,
+          $extraData: String!
+        ) {
+          create_Block(input: [{
+            hash: $hash
+            number: $number
+            timestamp: $timestamp
+            parentHash: $parentHash
+            difficulty: $difficulty
+            gasUsed: $gasUsed
+            gasLimit: $gasLimit
+            nonce: $nonce
+            miner: $miner
+            size: $size
+            stateRoot: $stateRoot
+            sha3Uncles: $sha3Uncles
+            transactionsRoot: $transactionsRoot
+            receiptsRoot: $receiptsRoot
+            extraData: $extraData
+          }]) {
             _docID
             hash
           }

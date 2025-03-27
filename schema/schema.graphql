@@ -1,7 +1,7 @@
 type Block {
     hash: String @index(unique: true)
     number: String
-    time: String
+    timestamp: String
     parentHash: String
     difficulty: String
     gasUsed: String
@@ -9,10 +9,10 @@ type Block {
     nonce: String
     miner: String
     size: String
-    stateRootHash: String
-    uncleHash: String
-    transactionRootHash: String
-    receiptRootHash: String
+    stateRoot: String
+    sha3Uncles: String
+    transactionsRoot: String
+    receiptsRoot: String
     extraData: String
     # Relationships
     transactions: [Transaction] @relation(name: "block_transactions")

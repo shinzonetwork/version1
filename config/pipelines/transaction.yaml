@@ -81,8 +81,7 @@ steps:
     config:
       fields:
         hash: "hash"
-        blockHash: "blockHash"
-        blockNumber: "blockNumber"
+        block_id: "block_id"  # This will be set to the block's DocID in the indexer
         from: "from"
         to: "to"
         value: "value"
@@ -90,28 +89,15 @@ steps:
         gasPrice: "gasPrice"
         input: "input"
         nonce: "nonce"
-        transactionIndex: "transactionIndex"
-        r: "r"
-        s: "s"
-        v: "v"
-        type: "type"
-        yParity: "yParity"
-        chainId: "chainId"
-        maxFeePerGas: "maxFeePerGas"
-        maxPriorityFeePerGas: "maxPriorityFeePerGas"
-        accessList: "accessList"
-        indexedAt: "indexedAt"
-        network: "network"
+        index: "transactionIndex"
         status: "status"
-        block_id: "block_id"
 
   - name: validate_fields
     type: validate
     config:
       required:
         - hash
-        - blockHash
-        - blockNumber
+        - block_id
         - from
         - to
         - value
@@ -119,13 +105,8 @@ steps:
         - gasPrice
         - input
         - nonce
-        - transactionIndex
-        - r
-        - s
-        - v
-        - type
-        - chainId
-        - block_id
+        - index
+        - status
 
   - name: prepare_fields
     type: enrich
@@ -150,11 +131,22 @@ steps:
     type: enrich
     config:
       query: |
-        mutation CreateTransaction($hash: String!, $blockHash: String!, $blockNumber: String!, $from: String!, $to: String!, $value: String!, $gas: String!, $gasPrice: String!, $input: String!, $nonce: String!, $transactionIndex: String!, $r: String!, $s: String!, $v: String!, $type: String!, $chainId: String!, $block_id: String!, $yParity: String, $maxFeePerGas: String, $maxPriorityFeePerGas: String, $accessList: String, $indexedAt: String, $network: String, $status: Boolean) {
-          create_Transaction(input: {
+        mutation CreateTransaction(
+          $hash: String!,
+          $block_id: ID!,
+          $from: String!,
+          $to: String!,
+          $value: String!,
+          $gas: String!,
+          $gasPrice: String!,
+          $input: String!,
+          $nonce: String!,
+          $index: String!,
+          $status: Boolean!
+        ) {
+          create_Transaction(input: [{
             hash: $hash
-            blockHash: $blockHash
-            blockNumber: $blockNumber
+            block_id: $block_id
             from: $from
             to: $to
             value: $value
@@ -162,21 +154,9 @@ steps:
             gasPrice: $gasPrice
             input: $input
             nonce: $nonce
-            transactionIndex: $transactionIndex
-            r: $r
-            s: $s
-            v: $v
-            type: $type
-            chainId: $chainId
-            block_id: $block_id
-            yParity: $yParity
-            maxFeePerGas: $maxFeePerGas
-            maxPriorityFeePerGas: $maxPriorityFeePerGas
-            accessList: $accessList
-            indexedAt: $indexedAt
-            network: $network
+            index: $index
             status: $status
-          }) {
+          }]) {
             _docID
             hash
           }

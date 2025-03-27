@@ -1,22 +1,23 @@
 package indexer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
+	"bytes"
 	"shinzo/version1/config"
 	"shinzo/version1/pkg/lens"
 	"shinzo/version1/pkg/rpc"
-
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 type Indexer struct {
@@ -43,8 +44,8 @@ func NewIndexer(cfg *config.Config, logger *zap.Logger) (*Indexer, error) {
 		Pipelines: map[string]string{
 			"block":       "config/pipelines/block.yaml",
 			"transaction": "config/pipelines/transaction.yaml",
-			"log":        "config/pipelines/log.yaml",
-			"event":      "config/pipelines/event.yaml",
+			"log":         "config/pipelines/log.yaml",
+			"event":       "config/pipelines/event.yaml",
 		},
 	}
 
@@ -88,7 +89,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 				return ctx.Err()
 			case <-ticker.C:
 				if err := i.processNextBlock(ctx); err != nil {
-					i.logger.Error("Failed to process block", 
+					i.logger.Error("Failed to process block",
 						zap.Int("block_number", i.lastBlock+1),
 						zap.Error(err))
 					return err
@@ -208,21 +209,47 @@ func (i *Indexer) blockExists(ctx context.Context, blockHash string) (bool, erro
 }
 
 func (i *Indexer) postToCollection(ctx context.Context, collectionName string, data map[string]interface{}) (string, error) {
-	// Build the mutation query
+	// Build the mutation query with explicit variable types
+	var variables []string
+	var variableTypes []string
+
+	// Create a copy of data to modify
+	dataCopy := make(map[string]interface{})
+
+	// Only include fields that DefraDB expects
+	for k, v := range data {
+		switch k {
+		case "baseFeePerGas", "logsBloom", "mixHash", "transactions", "uncles", "withdrawals", "withdrawalsRoot":
+			// Skip these fields as they're not in our schema
+			continue
+		case "block_id":
+			// Special handling for block_id as it's an ID type
+			dataCopy[k] = v
+			variables = append(variables, fmt.Sprintf("$%s", k))
+			variableTypes = append(variableTypes, fmt.Sprintf("$%s: ID!", k))
+		default:
+			dataCopy[k] = v
+			variables = append(variables, fmt.Sprintf("$%s", k))
+			variableTypes = append(variableTypes, fmt.Sprintf("$%s: String!", k))
+		}
+	}
+
 	query := fmt.Sprintf(`
-		mutation Create%s($input: %sInput!) {
-			create_%s(input: $input) {
+		mutation Create%s(%s) {
+			create_%s(input: [{
+				%s
+			}]) {
 				_docID
 			}
 		}
-	`, collectionName, collectionName, collectionName)
+	`, collectionName, strings.Join(variableTypes, ", "),
+		collectionName,
+		strings.Join(mapToFields(dataCopy), ",\n"))
 
 	// Convert input data to JSON for variables
 	jsonData, err := json.Marshal(map[string]interface{}{
-		"query": query,
-		"variables": map[string]interface{}{
-			"input": data,
-		},
+		"query":     query,
+		"variables": dataCopy,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal query: %w", err)
@@ -230,7 +257,8 @@ func (i *Indexer) postToCollection(ctx context.Context, collectionName string, d
 
 	i.logger.Info("Sending GraphQL mutation",
 		zap.String("collection", collectionName),
-		zap.Any("input", data))
+		zap.String("query", query),
+		zap.Any("variables", dataCopy))
 
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v0/graphql", i.defraURL), bytes.NewBuffer(jsonData))
@@ -289,6 +317,16 @@ func (i *Indexer) postToCollection(ctx context.Context, collectionName string, d
 		zap.String("doc_id", docID))
 
 	return docID, nil
+}
+
+// mapToFields converts a map to GraphQL field assignments
+func mapToFields(data map[string]interface{}) []string {
+	var fields []string
+	for k := range data {
+		fields = append(fields, fmt.Sprintf("%s: $%s", k, k))
+	}
+	sort.Strings(fields) // Sort for consistent order
+	return fields
 }
 
 func (i *Indexer) postCollection(ctx context.Context, collection string, docID string, data map[string]interface{}) ([]byte, error) {
@@ -368,43 +406,58 @@ func (i *Indexer) postCollection(ctx context.Context, collection string, docID s
 }
 
 func (i *Indexer) processNextBlock(ctx context.Context) error {
-	// Get the next block
+	// Get next block
 	blockData, err := i.alchemy.GetBlockByNumber(ctx, i.lastBlock+1)
 	if err != nil {
 		return fmt.Errorf("failed to get block %d: %w", i.lastBlock+1, err)
 	}
 
-	// Transform and store block first
 	i.logger.Info("Processing block",
 		zap.Int("number", i.lastBlock+1),
 		zap.String("hash", blockData["hash"].(string)))
 
-	transformedBlock, err := i.transformer.Transform(ctx, "block", blockData)
-	if err != nil {
-		return fmt.Errorf("failed to transform block %d: %w", i.lastBlock+1, err)
+	// Store the block first to get its DocID
+	blockDataCopy := make(map[string]interface{})
+	for k, v := range blockData {
+		switch k {
+		case "timestamp":
+			blockDataCopy["timestamp"] = v
+		case "stateRoot":
+			blockDataCopy["stateRoot"] = v
+		case "sha3Uncles":
+			blockDataCopy["sha3Uncles"] = v
+		case "transactionsRoot":
+			blockDataCopy["transactionsRoot"] = v
+		case "receiptsRoot":
+			blockDataCopy["receiptsRoot"] = v
+		case "baseFeePerGas", "logsBloom", "mixHash", "transactions", "uncles", "withdrawals", "withdrawalsRoot":
+			// Skip these fields as they're not in our schema
+			continue
+		default:
+			blockDataCopy[k] = v
+		}
 	}
 
-	// 1. Store block first to get its DocID
-	blockDocID, err := i.postToCollection(ctx, "Block", transformedBlock)
+	blockDocID, err := i.postToCollection(ctx, "Block", blockDataCopy)
 	if err != nil {
 		return fmt.Errorf("failed to store block %d: %w", i.lastBlock+1, err)
 	}
+
 	i.logger.Info("Stored block",
 		zap.Int("number", i.lastBlock+1),
-		zap.String("doc_id", blockDocID),
-		zap.String("hash", blockData["hash"].(string)))
+		zap.String("block_id", blockData["hash"].(string)),
+		zap.String("doc_id", blockDocID))
 
-	// Extract transactions
+	// Process transactions
 	transactions, ok := blockData["transactions"].([]interface{})
 	if !ok {
 		return fmt.Errorf("invalid transactions data in block %d", i.lastBlock+1)
 	}
 
-	// 2. Store all transactions with block relationship
 	txHashToID := make(map[string]string) // txHash -> stored DocID
 	for _, txData := range transactions {
 		tx := txData.(map[string]interface{})
-		txHash := tx["hash"].(string)
+		hash := tx["hash"].(string)
 
 		// Create a copy of tx to avoid modifying the original
 		txCopy := make(map[string]interface{})
@@ -412,49 +465,20 @@ func (i *Indexer) processNextBlock(ctx context.Context) error {
 			txCopy[k] = v
 		}
 
-		// Set both relationship fields
-		txCopy["block_id"] = blockDocID // For DefraDB relationship
-		txCopy["block"] = blockDocID    // For GraphQL relationship
+		// Set block_id to the block's DocID
+		txCopy["block_id"] = blockDocID
 
-		i.logger.Info("Processing transaction",
-			zap.String("tx_hash", txHash),
-			zap.String("block_doc_id", blockDocID))
-
-		// Transform and store transaction
-		transformedTx, err := i.transformer.Transform(ctx, "transaction", txCopy)
+		txID, err := i.postToCollection(ctx, "Transaction", txCopy)
 		if err != nil {
-			i.logger.Error("Failed to transform transaction",
-				zap.String("hash", txHash),
-				zap.String("block_id", blockDocID),
-				zap.Error(err))
-			return fmt.Errorf("failed to transform transaction %s: %w", txHash, err)
-		}
-
-		i.logger.Info("Transaction after transform",
-			zap.String("hash", txHash),
-			zap.String("block_id", transformedTx["block_id"].(string)))
-
-		txID, err := i.postToCollection(ctx, "Transaction", transformedTx)
-		if err != nil {
-			i.logger.Error("Failed to store transaction",
-				zap.String("hash", txHash),
-				zap.String("block_id", blockDocID),
-				zap.Error(err))
 			return fmt.Errorf("failed to store transaction: %w", err)
 		}
-		txHashToID[txHash] = txID
+
+		txHashToID[hash] = txID
 		i.logger.Info("Stored transaction",
-			zap.String("hash", txHash),
-			zap.String("tx_id", txID),
-			zap.String("block_id", blockDocID))
-	}
+			zap.String("hash", hash),
+			zap.String("doc_id", txID))
 
-	// 3. Store all logs with transaction_id
-	for _, txData := range transactions {
-		tx := txData.(map[string]interface{})
-		txHash := tx["hash"].(string)
-		txID := txHashToID[txHash]
-
+		// Process logs for this transaction
 		logs, ok := tx["logs"].([]interface{})
 		if !ok {
 			continue // Skip if no logs
@@ -462,63 +486,51 @@ func (i *Indexer) processNextBlock(ctx context.Context) error {
 
 		for _, logData := range logs {
 			log := logData.(map[string]interface{})
-			logHash := fmt.Sprintf("%s-%d", txHash, int(log["logIndex"].(float64)))
+
+			// Create a copy of log to avoid modifying the original
+			logCopy := make(map[string]interface{})
+			for k, v := range log {
+				logCopy[k] = v
+			}
 
 			// Set transaction_id for relationship
-			log["transaction_id"] = txID
+			logCopy["transaction_id"] = txID
 
-			// Transform and store log
-			transformedLog, err := i.transformer.Transform(ctx, "log", log)
+			logID, err := i.postToCollection(ctx, "Log", logCopy)
 			if err != nil {
-				i.logger.Error("Failed to transform log",
-					zap.String("tx_hash", txHash),
-					zap.String("log_hash", logHash),
-					zap.Error(err))
-				return fmt.Errorf("failed to transform log %s: %w", logHash, err)
-			}
-
-			logID, err := i.postToCollection(ctx, "Log", transformedLog)
-			if err != nil {
-				i.logger.Error("Failed to store log",
-					zap.String("tx_hash", txHash),
-					zap.String("log_hash", logHash),
-					zap.Error(err))
 				return fmt.Errorf("failed to store log: %w", err)
 			}
+
 			i.logger.Info("Stored log",
-				zap.String("tx_hash", txHash),
-				zap.String("log_id", logID),
-				zap.String("transaction_id", txID))
+				zap.String("transaction_hash", hash),
+				zap.String("doc_id", logID))
 
-			// 4. Store events with log_id
-			if events, ok := log["events"].([]interface{}); ok {
-				for _, eventData := range events {
-					event := eventData.(map[string]interface{})
+			// Process events for this log
+			events, ok := log["events"].([]interface{})
+			if !ok {
+				continue // Skip if no events
+			}
 
-					// Set log_id for relationship
-					event["log_id"] = logID
+			for _, eventData := range events {
+				event := eventData.(map[string]interface{})
 
-					// Transform and store event
-					transformedEvent, err := i.transformer.Transform(ctx, "event", event)
-					if err != nil {
-						i.logger.Error("Failed to transform event",
-							zap.String("log_hash", logHash),
-							zap.Error(err))
-						return fmt.Errorf("failed to transform event in log %s: %w", logHash, err)
-					}
-
-					eventID, err := i.postToCollection(ctx, "Event", transformedEvent)
-					if err != nil {
-						i.logger.Error("Failed to store event",
-							zap.String("log_hash", logHash),
-							zap.Error(err))
-						return fmt.Errorf("failed to store event: %w", err)
-					}
-					i.logger.Info("Stored event",
-						zap.String("log_hash", logHash),
-						zap.String("event_id", eventID),
-						zap.String("log_id", logID))
+				// Create a copy of event to avoid modifying the original
+				eventCopy := make(map[string]interface{})
+				for k, v := range event {
+					eventCopy[k] = v
 				}
+
+				// Set log_id for relationship
+				eventCopy["log_id"] = logID
+
+				eventID, err := i.postToCollection(ctx, "Event", eventCopy)
+				if err != nil {
+					return fmt.Errorf("failed to store event: %w", err)
+				}
+
+				i.logger.Info("Stored event",
+					zap.String("transaction_hash", hash),
+					zap.String("doc_id", eventID))
 			}
 		}
 	}
