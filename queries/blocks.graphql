@@ -1,3 +1,26 @@
+mutation CreateNewBlock(block: *type.Block){
+  create_Block(input: {block}){
+    _docID
+  }
+}
+
+mutation CreateNewTransaction(tx: *type.Transaction){
+  create_Transaction(input:{tx}){
+    _docID
+  }
+}
+mutation CreateNewLog(log: *type.Log){
+  create_Log(input: {log}){
+    _docID
+  }
+}
+
+mutation CreateNewEvent(event: *type.Event){
+  create_Transaction(input:{event}){
+    _docID
+  }
+}
+
 query GetLatestBlocks {
   Block(orderBy: {number: DESC}, limit: 10) {
     hash
@@ -18,7 +41,7 @@ query GetLatestBlocks {
   }
 }
 
-query GetBlockWithTransactions($blockNumber: Int!) {
+query GetBlockWithTransactions($blockNumber: Int) {
   Block(filter: {number: {_eq: $blockNumber}}) {
     hash
     number
@@ -60,6 +83,132 @@ query GetBlockWithTransactions($blockNumber: Int!) {
       }
     }
   }
+}
+
+query GetLastNBlocks($number: Int) {
+  Block(order: {number: DESC}, limit: number) {
+    hash
+    number
+    parentHash
+    _docID
+    transactions{
+      block_id
+      hash
+      from
+      to
+      transactionIndex
+      _docID
+      logs{
+        address
+        transaction_id
+        transactionHash
+        _docID
+        events{
+          log_id
+          _docID
+        }
+      }
+    }
+  }
+}
+
+query GetTransactionByHash(txHash:string){
+  Transaction(filter: {transactionHash:{_eq:txHash}}){
+    _docID
+    hash
+    blockHash
+    from
+    to
+    value
+    gasUsed
+    gasPrice
+    inputData
+    nonce
+    transactionIndex
+    r
+    s
+    v
+    logs{
+      address
+      topics
+      data
+      transactionHash
+      blockHash
+      blockNumber
+      transactionIndex
+      logIndex
+      removed
+      transaction_id
+      block_id
+    }
+  }
+}
+
+
+query GetTransactionByDocId(txId:string){
+  Transaction(filter: {transaction_id:{_eq:txId}}){
+    hash
+    hash
+    blockHash
+    from
+    to
+    value
+    gasUsed
+    gasPrice
+    inputData
+    nonce
+    transactionIndex
+    r
+    s
+    v
+    logs{
+      address
+      topics
+      data
+      transactionHash
+      blockHash
+      blockNumber
+      transactionIndex
+      logIndex
+      removed
+      transaction_id
+      block_id
+    }
+  }
+}
+
+query GetLogByIndexOfTransactionHash(logIndex:string, transactionHash:string){
+   Log(filter: {logIndex: {_eq:logIndex}, transactionHash: {_eq:transactionHash}}){
+      address
+      topics
+      data
+      _docID
+      blockHash
+      blockNumber
+      transactionIndex
+      logIndex
+      removed
+      transaction_id
+      block_id
+      events
+    }
+}
+
+query GetLogByIndexOfTransactionId(logIndex:string, txId:string){
+  Log(filter: {logIndex: {_eq:logIndex}, transaction_id: {_eq:txId}}){
+      address
+      topics
+      data
+      _docID
+      blockHash
+      blockNumber
+      transactionIndex
+      logIndex
+      removed
+      transaction_id
+      block_id
+      events
+    }
 }
 
 query GetCounts {

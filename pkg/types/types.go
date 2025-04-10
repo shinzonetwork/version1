@@ -90,6 +90,12 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+type QueryHelper struct {
+	Type       string `json:"type"`
+	FieldKey   string `json:"fieldKey"`
+	FieldValue string `json:"fieldValue"`
+}
+
 type DefraDoc struct {
 	JSON interface{} `json:"json"`
 }
