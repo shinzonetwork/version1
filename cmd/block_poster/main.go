@@ -39,20 +39,15 @@ func main() {
 	}
 
 	endBlock := startBlock + 100
-
-	fmt.Println("here")
 	//go routines start here
 
-	workerPool := make(chan struct{}, 4)
+	workerPool := make(chan struct{}, 4) // TODO: Adjust the number of goroutines as needed within CONFIG
 
 	for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
 
 		workerPool <- struct{}{}
 
 		go func(blockNum int64) {
-
-			fmt.Println("near here")
-
 			// Convert to hex for Alchemy API
 			blockHex := fmt.Sprintf("0x%x", blockNum)
 
@@ -60,11 +55,13 @@ func main() {
 
 			// Get block with retry logic
 			var block *types.Block
-			for retries := 0; retries < 3; retries++ {
+			for retries := 0; ; retries++ {
 				block, err = alchemy.GetBlock(context.Background(), blockHex)
-				fmt.Println(block)
 				if err == nil {
-					sugar.Debug("Received block from Alechemy")
+					break
+				}
+				if retries >= 3 {
+					err = fmt.Errorf("failed after %d retries", retries)
 					break
 				}
 				sugar.Error("Failed to get block %d, retry %d: %v", blockNum, retries+1, err)

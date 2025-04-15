@@ -14,7 +14,7 @@ alchemy:
   network: "${ALCHEMY_NETWORK}"
 
 logger:
-  development: true 
+  development: false
 
 indexer:
   block_polling_interval: 0.0001  # 1 millisecond
@@ -23,10 +23,10 @@ indexer:
   pipeline:
     fetch_blocks:
       workers: 2
-      buffer_size: 1000
+      buffer_size: 100
     process_transactions:
       workers: 4
-      buffer_size: 2000
+      buffer_size: 200
     store_data:
-      workers: 2
-      buffer_size: 1000
+      workers: 4
+      buffer_size: 100
