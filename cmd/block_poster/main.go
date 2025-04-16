@@ -91,7 +91,6 @@ func main() {
 				logs, events := processLogsAndEvents(receipt.Logs, receipt, sugar)
 				allLogs = append(allLogs, logs...)
 				allEvents = append(allEvents, events...)
-
 				transactions = append(transactions, buildTransaction(tx, receipt, logs))
 			}
 
@@ -99,7 +98,7 @@ func main() {
 			block = buildBlock(block, transactions)
 			blockDocID := blockHandler.CreateBlock(context.Background(), block, sugar)
 			if blockDocID == "" {
-				sugar.Error("Failed to create block, skipping relationships")
+				sugar.Warn("Failed to create block, skipping relationships")
 				return
 			}
 			// TODO: remove sending the log, instantiate it at the start of each file
@@ -109,7 +108,8 @@ func main() {
 				txID := blockHandler.CreateTransaction(context.Background(), &tx, blockDocID, sugar)
 				if txID != "" {
 					txIDMap[tx.Hash] = txID
-					// 	blockHandler.UpdateTransactionRelationships(context.Background(), blockDocID, tx.Hash, sugar)
+				} else {
+					sugar.Warn("Failed to create transaction, skipping relationships")
 				}
 			}
 
@@ -118,7 +118,8 @@ func main() {
 			for _, log := range allLogs {
 				if logID := blockHandler.CreateLog(context.Background(), &log, blockDocID, txIDMap[log.TransactionHash], sugar); logID != "" {
 					logIDMap[log.LogIndex] = logID
-					// blockHandler.UpdateLogRelationships(context.Background(), blockDocID, txID, log.TransactionHash, log.LogIndex, sugar)
+				} else {
+					sugar.Warn("Failed to create log, skipping relationships")
 				}
 			}
 
