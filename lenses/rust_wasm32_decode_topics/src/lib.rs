@@ -11,22 +11,32 @@ extern "C" {
     fn next() -> *mut u8;
 }
 
-#[derive(Serialize)]
-pub struct Output {
-    pub index_topic_0: String,
-    pub index_topic_1: String,
-    pub index_topic_2: String,
-    pub index_topic_3: String,
-    pub index_topic_4: String,
-    pub value:         String,
-}
 
 #[derive(Deserialize)]
 pub struct Input {
-    pub topics: String,
-    pub number: u64,
+    pub topic0: String, // type of function 
+    pub topic1: String, // function input 1
+    pub topic2: String, // function input 2
+    pub topic3: String, // function input 3
+    pub topic4: String, // function input 4
+    pub from: String, // this may not be needed. 
+    pub to: String, 
+    pub contractAddress: String, // if different from to
     pub abi: Vec<u8>,
 }
+
+#[derive(Serialize)]
+pub struct Output {
+    pub from:            String,
+    pub to:              String,
+    pub contractAddress: String,
+    pub index_topic_0:   String,
+    pub index_topic_1:   String,
+    pub index_topic_2:   String,
+    pub index_topic_3:   String,
+    pub index_topic_4:   String,
+}
+
 
 #[no_mangle]
 pub extern fn alloc(size: usize) -> *mut u8 {
@@ -52,32 +62,16 @@ fn try_transform() -> Result<StreamOption<Vec<u8>>, Box<dyn Error>> {
         None => return Ok(None),
         EndOfStream => return Ok(EndOfStream),
     };
-
-    let topics: Vec<&str> = input.topics.split(';').collect();
     let mut result = Output {
-        index_topic_0: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        index_topic_1: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        index_topic_2: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        index_topic_3: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        index_topic_4: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        value: "".to_string(),
+        from: input.from,
+        to: input.to,
+        contractAddress: input.contractAddress,
+        index_topic_0 : decode_topic(&input.topic0, &input.abi)?,
+        index_topic_1 : decode_topic(&input.topic1, &input.abi)?,
+        index_topic_2 : decode_topic(&input.topic2, &input.abi)?,
+        index_topic_3 : decode_topic(&input.topic3, &input.abi)?,
+        index_topic_4 : decode_topic(&input.topic4, &input.abi)?,
     };
-
-    for i in 0..input.number {
-        let idx = i as usize;
-        if idx < topics.len() {
-            match i {
-                0 => result.index_topic_0 = decode_topic(topics[idx], &input.abi)?,
-                1 => result.index_topic_1 = decode_topic(topics[idx], &input.abi)?,
-                2 => result.index_topic_2 = decode_topic(topics[idx], &input.abi)?,
-                3 => result.index_topic_3 = decode_topic(topics[idx], &input.abi)?,
-                4 => result.index_topic_4 = decode_topic(topics[idx], &input.abi)?,
-                _ => break,
-            }
-        } else {
-            break;
-        }
-    }
 
     let result_json = serde_json::to_vec(&result)?;
     lens_sdk::free_transport_buffer(ptr)?;

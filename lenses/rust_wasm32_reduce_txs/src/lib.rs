@@ -15,12 +15,22 @@ extern "C" {
 
 #[derive(Deserialize)]
 pub struct Input {
-    pub topics: [String]
+    pub topics: String, // data is transaction input data
+    pub from: String, // calling address
+    pub to: String, // maybe contract address
+    pub address: String, // contract address within the log view this may need to be nested?
 }
 
 #[derive(Serialize)]
 pub struct Output {
-    pub data: String,
+    pub topic0: String,
+    pub topic1: String,
+    pub topic2: String,
+    pub topic3: String,
+    pub topic4: String,
+    pub from: String, // this may not be needed. 
+    pub to: String,
+    pub contractAddress: String, // if different from to
 }
 
 #[no_mangle]
@@ -51,11 +61,29 @@ fn try_transform() -> Result<StreamOption<Vec<u8>>, Box<dyn Error>> {
             EndOfStream => return Ok(EndOfStream)
         };
 
-        let concatenated = format!("{}", input.topics);
-
-        let result = Output {
-            data: concatenated,
+        let res = input.topics.split(";").collect::<Vec<&str>>();
+        let mut result = Output {
+            from: input.from,
+            to: input.to,
+            contractAddress: input.address,
+            topic0 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic1 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic2 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic3 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic4 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         };
+        for i in 0..res.len() {
+            match i {
+                0 => result.topic0 = res[i].to_string(),
+                1 => result.topic1 = res[i].to_string(),
+                2 => result.topic2 = res[i].to_string(),
+                3 => result.topic3 = res[i].to_string(),
+                4 => result.topic4 = res[i].to_string(),
+                _ => break
+            }
+        }
+
+
         
         let result_json = serde_json::to_vec(&result)?;
         lens_sdk::free_transport_buffer(ptr)?;
