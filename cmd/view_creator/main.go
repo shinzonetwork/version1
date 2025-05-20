@@ -35,14 +35,20 @@ func main() {
 	viewHandler := defra.NewViewHandler(cfg.DefraDB.Host, cfg.DefraDB.Port)
 	// create view for test purposes, in real prod enviroment we get the data from either user input or cosmos blocks parsing
 	view := viewHandler.CreateView(
-		`			
+		`
 			Log{
-				topics 
+				topics
+				address
 			}
 		`,
 		`
-			type DecodedLogViewer5 @materialized(if: true) {
-				data: String
+			type ReducedTransactionTest @materialized(if: true){
+				topic0: String
+				topic1: String
+				topic2: String
+				topic3: String
+				topic4: String
+				address: String
 			}
 		`,
 		// immutable.None[model.Lens](),

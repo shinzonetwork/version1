@@ -15,10 +15,9 @@ extern "C" {
 
 #[derive(Deserialize)]
 pub struct Input {
-    pub topics: String, // data is transaction input data
-    pub from: String, // calling address
-    pub to: String, // maybe contract address
-    pub address: String, // contract address within the log view this may need to be nested?
+    pub topics: Vec<String,
+    pub address: String,
+    // pub address: String, // contract address within the log view this may need to be nested?
 }
 
 #[derive(Serialize)]
@@ -28,9 +27,8 @@ pub struct Output {
     pub topic2: String,
     pub topic3: String,
     pub topic4: String,
-    pub from: String, // this may not be needed. 
-    pub to: String,
-    pub contractAddress: String, // if different from to
+    pub address: String,
+    // pub contractAddress: String, // if different from to
 }
 
 #[no_mangle]
@@ -63,14 +61,12 @@ fn try_transform() -> Result<StreamOption<Vec<u8>>, Box<dyn Error>> {
 
         let res = input.topics.split(";").collect::<Vec<&str>>();
         let mut result = Output {
-            from: input.from,
-            to: input.to,
-            contractAddress: input.address,
-            topic0 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            topic1 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            topic2 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            topic3 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            topic4 : "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            from: input.address,
+            topic0: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic1: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic2: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic3: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            topic4: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         };
         for i in 0..res.len() {
             match i {
@@ -82,9 +78,6 @@ fn try_transform() -> Result<StreamOption<Vec<u8>>, Box<dyn Error>> {
                 _ => break
             }
         }
-
-
-        
         let result_json = serde_json::to_vec(&result)?;
         lens_sdk::free_transport_buffer(ptr)?;
         return Ok(Some(result_json))
