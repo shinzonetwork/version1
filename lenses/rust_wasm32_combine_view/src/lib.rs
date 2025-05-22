@@ -13,14 +13,37 @@ extern "C" {
     fn next() -> *mut u8;
 }
 
-#[derive(Deserialize)]
+// #[derive(Deserialize, Clone)]
+// pub struct Log {
+//     pub address: String,
+//     pub topics: Vec<String>,
+//     pub events: [Event::Vec<Event>;],
+// }
+
+// #[derive(Deserialize, Clone)]
+// pub struct Event {
+//     pub eventName: String,
+// }
+
+#[derive(Deserialize, Clone)]
 pub struct Input {
-    pub topics: [String;4],
+    pub from: String,
+    pub to: String,
+    // pub logs: [Log::Vec<Log>],
 }
+
 
 #[derive(Serialize)]
 pub struct Output {
-    pub data: String,
+    from: String,
+    to: String,
+    // address: String,
+    // eventName: String,
+    // topic0: String,
+    // topic1: String,
+    // topic2: String,
+    // topic3: String,
+    // topic4: String,
 }
 
 #[no_mangle]
@@ -43,21 +66,30 @@ pub extern fn transform() -> *mut u8 {
 fn try_transform() -> Result<StreamOption<Vec<u8>>, Box<dyn Error>> {
     loop {
         let ptr = unsafe { next() };
-        let _input = match lens_sdk::try_from_mem::<Input>(ptr)? {
+        let input = match lens_sdk::try_from_mem::<Input>(ptr)? {
             Some(v) => v,
             // Implementations of `transform` are free to handle nil however they like. In this
             // implementation we chose to return nil given a nil input.
             None => return Ok(None),
             EndOfStream => return Ok(EndOfStream)
         };
-        let mut concatenated: String = String::new();
-        for topic in _input.topics.iter() {
-            concatenated=concatenated+topic;
-        }
+        // let default_topic = "0x0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        // let mut topics: Vec<String> = vec![default_topic.clone(); 5];
+
+        // for (i, topic) in _input.topics.iter().enumerate().take(5) {
+        //     topics[i] = topic.clone();
+        // }
         let result = Output {
-            data: concatenated,
+            from: input.from,
+            to: input.to,
+            // address: _input.logs.address,
+            // eventName: _input.eventName,
+            // topic0: topics[0].clone(),
+            // topic1: topics[1].clone(),
+            // topic2: topics[2].clone(),
+            // topic3: topics[3].clone(),
+            // topic4: topics[4].clone(),
         };
-        
         let result_json = serde_json::to_vec(&result)?;
         lens_sdk::free_transport_buffer(ptr)?;
         return Ok(Some(result_json))

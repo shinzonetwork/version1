@@ -38,12 +38,10 @@ func main() {
 		startBlock = int64(cfg.Indexer.StartHeight)
 	}
 
-	endBlock := startBlock + 100
-
-	fmt.Println("here")
+	endBlock := startBlock + 10
 	//go routines start here
 
-	workerPool := make(chan struct{}, 4)
+	workerPool := make(chan struct{}, 2)
 
 	for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
 
