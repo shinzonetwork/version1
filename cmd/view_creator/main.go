@@ -13,12 +13,6 @@ import (
 	"github.com/sourcenetwork/immutable"
 )
 
-// NewView{
-//     decodedTopics
-//     decodedData
-//     decodedEventName
-// }
-
 func main() {
 	cfg, err := config.LoadConfig("config/config.yaml")
 	if err != nil {
@@ -70,5 +64,5 @@ func main() {
 func getPathRelativeToProjectRoot(relativePath string) string {
 	_, filename, _, _ := runtime.Caller(0)
 	root := path.Dir(path.Dir(path.Dir(filename)))
-	return "file://" + path.Join(root, relativePath)
+	return path.Join(root, relativePath)
 }

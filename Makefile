@@ -12,6 +12,9 @@ build:
 build_view:
 	go build -o bin/view_creator cmd/view_creator/main.go
 
+start_view:
+	./bin/view_creator > logs/log.txt 1>&2
+
 start:
 	./bin/block_poster > logs/log.txt 1>&2   
 

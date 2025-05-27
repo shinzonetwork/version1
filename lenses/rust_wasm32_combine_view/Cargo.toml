@@ -1,5 +1,5 @@
 [package]
-name = "rust_wasm32_decode_topics"
+name = "rust_wasm32_combine_view"
 version = "0.1.0"
 edition = "2018"
 
