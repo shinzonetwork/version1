@@ -37,17 +37,11 @@ func main() {
 	view := viewHandler.CreateView(
 		`
 			Log{
-				topics
 				address
 			}
 		`,
 		`
-			type ReducedTransactionTest @materialized(if: true){
-				topic0: String
-				topic1: String
-				topic2: String
-				topic3: String
-				topic4: String
+			type ReducedTransactionTest3 @materialized(if: false){
 				address: String
 			}
 		`,

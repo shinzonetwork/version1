@@ -41,7 +41,6 @@ func main() {
 
 	endBlock := startBlock + 10
 
-	fmt.Println("here")
 	//go routines start here
 
 	workerPool := make(chan struct{}, 2)
@@ -51,8 +50,6 @@ func main() {
 		workerPool <- struct{}{}
 
 		go func(blockNum int64) {
-
-			fmt.Println("near here")
 
 			// Convert to hex for Alchemy API
 			blockHex := fmt.Sprintf("0x%x", blockNum)
