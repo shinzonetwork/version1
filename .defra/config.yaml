@@ -1,4 +1,4 @@
-"": /Users/duncanbrown/Developer/shinzo/vingh/version1/.defra
+"": /Users/daniel/Desktop/code/version1/.defra
 acp:
     sourcehub:
         address: ""
@@ -19,7 +19,6 @@ datastore:
     store: badger
 development: false
 keyring:
-    secret: "${DEFRA_KEYRING_SECRET}"
     backend: file
     disabled: false
     namespace: defradb

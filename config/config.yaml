@@ -20,13 +20,3 @@ indexer:
   block_polling_interval: 0.0001  # 1 millisecond
   batch_size: 100
   start_height: 22190000  # More recent block with transactions
-  pipeline:
-    fetch_blocks:
-      workers: 2
-      buffer_size: 1000
-    process_transactions:
-      workers: 4
-      buffer_size: 2000
-    store_data:
-      workers: 2
-      buffer_size: 1000

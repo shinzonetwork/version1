@@ -44,7 +44,7 @@ func main() {
 			// Path: getPathRelativeToProjectRoot("lenses/rust_wasm32_reduce_txs/target/wasm32-unknown-unknown/debug/rust_wasm32_reduce_txs.wasm"),
 			Lenses: []model.LensModule{
 				{
-					Path: getPathRelativeToProjectRoot("lenses/rust_wasm32_reduce_txs/target/wasm32-unknown-unknown/debug/rust_wasm32_reduce_txs.wasm"), // path to the lenses file, this will be created in the /lenses folder
+					Path: getPathRelativeToProjectRoot("lenses/rust_wasm32_combine_view/target/wasm32-unknown-unknown/debug/rust_wasm32_combine_view.wasm"), // path to the lenses file, this will be created in the /lenses folder
 					// Arguments: map[string]any{
 					// 	"abi": "[{'name': 'hash', 'type': 'string'}, {'name': 'from', 'type': 'string'}, {'name': 'to', 'type': 'string'}]",
 					// },

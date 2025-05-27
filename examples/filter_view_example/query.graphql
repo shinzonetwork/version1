@@ -1,0 +1,5 @@
+Log {
+  address
+  topics
+  data
+}

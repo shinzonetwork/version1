@@ -33,11 +33,12 @@ func NewBlockHandler(host string, port int) *BlockHandler {
 func (h *BlockHandler) ConvertHexToInt(s string, sugar *zap.SugaredLogger) int64 {
 	block16 := s[2:]
 	blockInt, err := strconv.ParseInt(block16, 16, 64)
-	if err != nil {
-		sugar.Fatalf("Failed to ParseInt(", err, ")")
-		return 0
+	if blockInt != 0 {
+		return blockInt
 	}
-	return blockInt
+	sugar.Fatalf("Failed to ParseInt(", err, ")")
+	return 0
+
 }
 
 func (h *BlockHandler) CreateBlock(ctx context.Context, block *types.Block, sugar *zap.SugaredLogger) string {
@@ -255,7 +256,6 @@ func (h *BlockHandler) PostToCollection(ctx context.Context, collection string, 
 		sugar.Warnf("no document ID returned for create_", collection)
 		return ""
 	}
-
 	return items[0].DocID
 }
 
@@ -284,7 +284,6 @@ func (h *BlockHandler) SendToGraphql(ctx context.Context, req types.Request, sug
 		sugar.Errorf("failed to create request: ", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-
 	// Send request
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
@@ -297,10 +296,8 @@ func (h *BlockHandler) SendToGraphql(ctx context.Context, req types.Request, sug
 	if err != nil {
 		sugar.Errorf("Read response error: ", err) // todo turn to error interface
 	}
-
 	// Debug: Print the response
-	sugar.Info("DefraDB Response: ", string(respBody), "\n")
-
+	sugar.Debug("DefraDB Response: ", string(respBody), "\n")
 	return respBody
 }
 
@@ -335,13 +332,6 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context, sugar *zap.Sug
 		return 0 // Return 0 if no blocks exist
 	}
 
-	// Find the highest block number
-	var highest int64
-	for _, block := range result.Data.Block {
-		if block.Number > highest {
-			highest = block.Number
-		}
-	}
-
-	return highest + 1
+	// Return the highest block number + 1
+	return result.Data.Block[0].Number + 1
 }

@@ -21,9 +21,6 @@ start:
 start_apply_schema:
 	./scripts/start_apply_schema.sh
 
-start_view:
-	./bin/view_creator > logs/view_logs.txt 1>&2
-
 defradb:
 	sh scripts/apply_schema.sh
 
@@ -32,6 +29,3 @@ clean:
 
 gitpush: 
 	git add . && git commit -m "${COMMIT_MESSAGE}" && git push origin ${BRANCH_NAME}
-
-view:
-	./bin/view_creator > logs/log.txt 1>&2

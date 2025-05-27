@@ -1,5 +1,0 @@
-# Ignore all target/ build dirs
-**/target/
-
-# Ignore all Cargo.lock files
-**/Cargo.lock

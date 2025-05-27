@@ -61,30 +61,6 @@ type Config struct {
 			RPCPort    int      `yaml:"rpc_port"`
 		} `yaml:"consensus"`
 	} `yaml:"source"`
-
-	CocoIndex struct {
-		Enabled   bool   `yaml:"enabled"`
-		StorePath string `yaml:"store_path"`
-		Pipeline  struct {
-			BatchSize int `yaml:"batch_size"`
-			Workers   int `yaml:"workers"`
-		} `yaml:"pipeline"`
-	} `yaml:"cocoindex"`
-
-	LensVM struct {
-		Enabled   bool   `yaml:"enabled"`
-		StorePath string `yaml:"store_path"`
-		Pipeline  struct {
-			BatchSize       int `yaml:"batch_size"`
-			Workers         int `yaml:"workers"`
-			Transformations []struct {
-				Name   string `yaml:"name"`
-				Input  string `yaml:"input"`
-				Output string `yaml:"output"`
-			} `yaml:"transformations"`
-		} `yaml:"pipeline"`
-	} `yaml:"lensvm"`
-
 	Logger struct {
 		Development bool `yaml:"development"`
 	} `yaml:"logger"`
