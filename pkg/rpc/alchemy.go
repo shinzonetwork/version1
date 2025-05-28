@@ -31,7 +31,6 @@ func (c *AlchemyClient) GetBlock(ctx context.Context, blockNumber string) (*type
 		"params": ["%s", true],
 		"id": 1
 	}`, blockNumber)
-
 	resp, err := c.post(ctx, payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -44,7 +43,6 @@ func (c *AlchemyClient) GetBlock(ctx context.Context, blockNumber string) (*type
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-
 	return result.Result, nil
 }
 
