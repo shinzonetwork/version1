@@ -1,0 +1,7 @@
+Log {
+  address
+  topics
+  data
+  transactionHash
+  blockNumber
+}
