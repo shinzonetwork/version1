@@ -78,18 +78,17 @@ func (h *BlockHandler) CreateTransaction(ctx context.Context, tx *types.Transact
 	txData := map[string]interface{}{
 		"hash":             tx.Hash,
 		"blockHash":        tx.BlockHash,
-		"blockNumber":      blockInt, // This is correct - blockInt is already converted to int64
+		"blockNumber":      blockInt,
 		"from":             tx.From,
 		"to":               tx.To,
 		"value":            tx.Value,
-		"gasUsed":          tx.Gas, // Map Gas to gasUsed
+		"gasUsed":          tx.Gas,
 		"gasPrice":         tx.GasPrice,
-		"inputData":        tx.Input, // Map Input to inputData
+		"inputData":        tx.Input,
 		"nonce":            tx.Nonce,
 		"transactionIndex": tx.TransactionIndex,
-		"block_id":         block_id,
 	}
-	sugar.Debug("Posting blockdata to collection endpoint: ", txData)
+	sugar.Debug("Creating transaction: ", txData)
 	return h.PostToCollection(ctx, "Transaction", txData, sugar)
 }
 
@@ -287,7 +286,8 @@ func (h *BlockHandler) SendToGraphql(ctx context.Context, req types.Request, sug
 	// Send request
 	resp, err := h.client.Do(httpReq)
 	if err != nil {
-		sugar.Errorf("failed to send request: ", err)
+		sugar.Errorf("failed to send request: %v", err)
+		return nil // Prevent panic if resp is nil
 	}
 	defer resp.Body.Close()
 

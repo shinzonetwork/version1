@@ -9,9 +9,8 @@ defradb:
     path: ".defra"
   keyring_secret: "${DEFRA_KEYRING_SECRET}"
 
-alchemy:
-  api_key: "${ALCHEMY_API_KEY}"
-  network: "${ALCHEMY_NETWORK}"
+geth:
+  node_url: "http://localhost:8545"
 
 logger:
   development: true 

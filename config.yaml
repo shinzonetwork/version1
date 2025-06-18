@@ -1,3 +1,7 @@
+author:
+  name: "Duncan Brown"
+  email: "duncan@source.network"
+
 defradb:
   host: "localhost"
   port: 9181
@@ -9,9 +13,8 @@ defradb:
   store:
     path: "./data"
 
-alchemy:
-  api_key: "${ALCHEMY_API_KEY}" # Add your Alchemy API key here
-  network: "${NETWORK_NAME}"
+geth:
+  node_url: "https://eth.llamarpc.com"
 
 indexer:
   block_polling_interval: 12.0
@@ -27,3 +30,6 @@ indexer:
     store_data:
       workers: 4
       buffer_size: 100
+
+logger:
+  development: true
