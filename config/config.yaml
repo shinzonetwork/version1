@@ -14,7 +14,7 @@ alchemy:
   network: "${ALCHEMY_NETWORK}"
 
 logger:
-  development: true 
+  development: true
 
 indexer:
   block_polling_interval: 0.0001  # 1 millisecond

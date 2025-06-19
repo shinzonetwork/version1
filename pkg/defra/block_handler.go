@@ -228,7 +228,7 @@ func (h *BlockHandler) PostToCollection(ctx context.Context, collection string, 
 			_docID
 		}
 	}`, collection, strings.Join(inputFields, ", "))}
-
+	sugar.Debug("Posting to collection: ", mutation)
 	// Send mutation
 	resp := h.SendToGraphql(ctx, mutation, sugar)
 	if resp == nil {

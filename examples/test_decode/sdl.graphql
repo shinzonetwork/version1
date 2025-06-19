@@ -1,0 +1,12 @@
+type FilteredAndDecodedLogs @materialized(if: false) {
+  hash: String
+  block: String
+  address: String
+  signature: String
+  arguments: [FilteredAndDecodedLogsArgument]
+}
+interface FilteredAndDecodedLogsArgument {
+  name: String
+  type: String
+  value: String
+}

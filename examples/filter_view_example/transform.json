@@ -1,0 +1,11 @@
+{
+    "lenses": [
+      {
+        "path": "file:///Users/daniel/Desktop/code/lenses/rust_wasm32_filter_contract_addresses/target/wasm32-unknown-unknown/debug/rust_wasm32_filter_contract_addresses.wasm",
+        "arguments": {
+          "src": "address",
+          "value": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        }
+      }
+    ]
+  }

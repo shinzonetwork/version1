@@ -101,6 +101,12 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
+	if logger := os.Getenv("DEFRA_LOGGING_DEVELOPMENT"); logger != "" {
+		if l, err := strconv.ParseBool(logger); err == nil {
+			cfg.Logger.Development = l
+		}
+	}
+
 	if host := os.Getenv("DEFRA_HOST"); host != "" {
 		cfg.DefraDB.Host = host
 	}

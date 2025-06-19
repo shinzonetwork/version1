@@ -40,10 +40,8 @@ func main() {
 	endBlock := startBlock + 10
 
 	//go routines start here
-	// reduced from 4 to 2
-	// nil pointer error when using map
-	// todo; convert to config value
-	workerPool := make(chan struct{}, 2)
+
+	workerPool := make(chan struct{}, 1)
 
 	for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
 
@@ -60,10 +58,10 @@ func main() {
 			for retries := 0; retries < 3; retries++ {
 				block, err = alchemy.GetBlock(context.Background(), blockHex)
 				if block != nil && err == nil {
-					sugar.Debug("Received block from Alechemy")
+					sugar.Info("Received block from Alechemy")
 					break
 				}
-				sugar.Error("Failed to get block %d, retry %d: %v", blockNum, retries+1, err)
+				sugar.Error("Failed to get block ", blockNum, " retries: ", retries+1, " error: ", err)
 				time.Sleep(time.Second * 1)
 				if err != nil {
 					sugar.Error("Skipping block ", blockNum, " after all retries failed: ", err)
@@ -88,7 +86,7 @@ func main() {
 
 				// Build logs and events
 				logs, events := processLogsAndEvents(receipt, sugar)
-
+				sugar.Debug("Transaction contains ", len(logs), " logs & ", len(events), " events")
 				allLogs = append(allLogs, logs...)
 				allEvents = append(allEvents, events...)
 
@@ -174,7 +172,6 @@ func processLogsAndEvents(receipt *types.TransactionReceipt, sugar *zap.SugaredL
 			events = append(events, event)
 			sugar.Debug("...Appeneded")
 		}
-
 		// Build log with events
 		sugar.Debug("... Adding log: ", rcptLog.LogIndex, " with topics: ", rcptLog.Topics)
 		processedLogs = append(processedLogs, types.Log{

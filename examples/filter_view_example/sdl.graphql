@@ -1,0 +1,5 @@
+type DecodedLog3111 @materialized(if: false) {
+  address: String,
+  data: String,
+  topics: String,
+}
