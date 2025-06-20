@@ -11,8 +11,13 @@ import (
 	"shinzo/version1/pkg/logger"
 	"shinzo/version1/pkg/rpc"
 	"shinzo/version1/pkg/types"
+	"shinzo/version1/pkg/utils"
 
 	"go.uber.org/zap"
+)
+
+const (
+	BlocksToIndexAtOnce = 10
 )
 
 func main() {
@@ -37,7 +42,7 @@ func main() {
 		startBlock = int64(cfg.Indexer.StartHeight)
 	}
 
-	endBlock := startBlock + 10
+	endBlock := startBlock + BlocksToIndexAtOnce
 
 	//go routines start here
 	// reduced from 4 to 2
@@ -50,27 +55,28 @@ func main() {
 		workerPool <- struct{}{}
 
 		go func(blockNum int64) {
-
-			// Convert blocknumber to hex for Alchemy API
-			blockHex := fmt.Sprintf("0x%x", blockNum)
+			blockHex := utils.NumberToHex(blockNum)
 
 			sugar.Info("Processing block: ", blockNum, ", hex: ", blockHex)
+			
 			// Get block with retry logic
-			var block *types.Block
-			for retries := 0; retries < 3; retries++ {
-				block, err = alchemy.GetBlock(context.Background(), blockHex)
-				if block != nil && err == nil {
-					sugar.Debug("Received block from Alechemy")
-					break
-				}
-				sugar.Error("Failed to get block %d, retry %d: %v", blockNum, retries+1, err)
-				time.Sleep(time.Second * 1)
-				if err != nil {
-					sugar.Error("Skipping block ", blockNum, " after all retries failed: ", err)
-					return
-				}
-
+			block, err := utils.RequestResourceWithRetries(
+				context.Background(),
+				sugar,
+				func() (*types.Block, error) {
+					return alchemy.GetBlock(context.Background(), blockHex)
+				},
+				fmt.Sprintf("get block %d", blockNum),
+			)
+			
+			if err != nil {
+				sugar.Error("Skipping block %d after all retries failed: %v", blockNum, err)
+				<-workerPool
+				return
 			}
+
+			sugar.Debug("Received block from Alchemy")
+
 			// Process all transactions first
 			var transactions []types.Transaction
 			var allLogs []types.Log
@@ -136,15 +142,14 @@ func main() {
 
 // Helper functions to move complexity out of main loop
 func getTransactionReceipt(ctx context.Context, alchemy *rpc.AlchemyClient, hash string, sugar *zap.SugaredLogger) (*types.TransactionReceipt, error) {
-	for retries := 0; retries < 3; retries++ {
-		receipt, err := alchemy.GetTransactionReceipt(ctx, hash)
-		if err == nil {
-			return receipt, nil
-		}
-		sugar.Error("Failed to get receipt for tx %s, retry %d: %v", hash, retries+1, err)
-		time.Sleep(time.Second * 2)
-	}
-	return nil, fmt.Errorf("failed after 3 retries")
+	return utils.RequestResourceWithRetries(
+		ctx,
+		sugar,
+		func() (*types.TransactionReceipt, error) {
+			return alchemy.GetTransactionReceipt(ctx, hash)
+		},
+		fmt.Sprintf("get transaction receipt for %s", hash),
+	)
 }
 
 func processLogsAndEvents(receipt *types.TransactionReceipt, sugar *zap.SugaredLogger) ([]types.Log, []types.Event) {
