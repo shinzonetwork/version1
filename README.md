@@ -31,26 +31,6 @@ A high-performance blockchain indexing solution built with Source Network, Defra
 - Navigate to defradb
 - Add a .nvmrc file with the node `v23.10.0`
 
-### Defra Start
-*To start DefraDB in the correct location please include the flag `--root-dir` with the path to the .defra directory*
-
-*Example*
-- Run Commands [each as a separate command]
-```bash
-  make build
-  ./defradb start --root-dir /path/to/version1/.defra/
-```
-
-*The playground includes an interface to query DefraDB Data*
-### Playground Setup 
-
-- Run Commands [each as a separate command]
-```bash
-  make deps:playground
-  GOFLAGS="-tags=playground" make build
-  ./defradb start --root-dir /path/to/version1/.defra/
-```
-
 ## Installation
 
 1. Clone the repository:
@@ -77,11 +57,6 @@ A high-performance blockchain indexing solution built with Source Network, Defra
     DEFRADB_URL=<DEFRADB_URL> # DefraDB HTTP URL
    ```
 
-4. Apply Schema
-```bash
-  ./scripts/apply_schema.sh
-```
-
 ## Configuration
 
 1. Configure DefraDB schema:
@@ -97,18 +72,13 @@ A high-performance blockchain indexing solution built with Source Network, Defra
      url: ${DEFRA_URL}
    ```
 
-## Running the Indexer
+## How to Run
 
-1. Start DefraDB:
-   ```bash
-   export $(cat .env) && ~/go/bin/defradb start --root-dir /path/to/version1/.defra/
-   ```
+`make bootstrap DEFRA_PATH=/path/to/defradb`
+or, to open the playground as well, use
+`make playground DEFRA_PATH=/path/to/defradb`
 
-2. Build and run the indexer:
-   ```bash
-   go build -o bin/block_poster cmd/block_poster/main.go
-   ./bin/block_poster > logs/log.txt 1>&2   
-   ```
+To avoid passing the `DEFRA_PATH=/path/to/defradb` portion of the command, set `DEFRA_PATH` as an environment variable.
 
 ## Data Model
 
