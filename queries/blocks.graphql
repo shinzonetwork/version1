@@ -62,15 +62,3 @@ query GetBlockWithTransactions($blockNumber: Int!) {
     }
   }
 }
-
-query GetCounts {
-  Block {
-    _count
-  }
-  Transaction {
-    _count
-  }
-  Log {
-    _count
-  }
-}
