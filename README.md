@@ -80,6 +80,14 @@ or, to open the playground as well, use
 
 To avoid passing the `DEFRA_PATH=/path/to/defradb` portion of the command, set `DEFRA_PATH` as an environment variable.
 
+## Testing
+
+To run unit tests, you can run `make test` or simply `go test ./...` per standard go.
+
+To run the integration tests, you'll want to run
+`make integration-test`
+This runs `make bootstrap` under the hood, so you'll want to provide `DEFRA_PATH=/path/to/defradb` as an argument or set it as an environment variable (as above). After the `make integration-test` script bootstraps the infra in your local environment, it will run the integration test suite, and then finally teardown the infra.
+
 ## Data Model
 
 ### Entities and Relationships
