@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage bootstrap playground stop
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage bootstrap playground stop integration-test
 
 DEFRA_PATH ?=
 
@@ -25,6 +25,14 @@ gitpush:
 
 test:
 	go test ./... -v
+
+integration-test:
+	@if [ -z "$(DEFRA_PATH)" ]; then \
+		echo "ERROR: You must pass DEFRA_PATH. Usage:"; \
+		echo "  make integration-test DEFRA_PATH=../path/to/defradb"; \
+		exit 1; \
+	fi
+	@scripts/test_integration.sh "$(DEFRA_PATH)"
 
 testrpc:
 	go test ./pkg/rpc -v
