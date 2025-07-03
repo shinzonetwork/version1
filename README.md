@@ -31,6 +31,7 @@ A high-performance blockchain indexing solution built with Source Network, Defra
 - Navigate to defradb
 - Add a .nvmrc file with the node `v23.10.0`
 
+
 ## Installation
 
 1. Clone the repository:
