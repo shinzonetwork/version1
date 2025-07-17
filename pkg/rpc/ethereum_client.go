@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
+	"time"
 
 	"shinzo/version1/pkg/logger"
 	"shinzo/version1/pkg/types"
@@ -13,6 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
+
+// BlockRequestOptions defines options for block requests
+type BlockRequestOptions struct {
+	HydratedTransactions bool          // Whether to include full transaction objects or just hashes
+	Timeout              time.Duration // Request timeout
+}
 
 // EthereumClient wraps both JSON-RPC and fallback HTTP client
 type EthereumClient struct {
@@ -88,7 +96,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, erro
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// GetBlockByNumber fetches a block by number
+// GetBlockByNumber fetches a block by number using HTTP client
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	if c.httpClient == nil {
 		return nil, fmt.Errorf("no HTTP client available")
@@ -360,6 +368,262 @@ func getChainId(tx *ethtypes.Transaction) string {
 		return ""
 	}
 	return tx.ChainId().String()
+}
+
+// GetBlockByNumberJSONRPC fetches a block by number using JSON-RPC directly
+func (c *EthereumClient) GetBlockByNumberJSONRPC(ctx context.Context, blockNumber *big.Int, hydratedTxs bool) (*types.Block, error) {
+	if c.jsonRPCClient == nil {
+		return nil, fmt.Errorf("no JSON-RPC client available")
+	}
+
+	// Convert block number to hex string for JSON-RPC call
+	var blockNumberHex string
+	if blockNumber == nil {
+		blockNumberHex = "latest"
+	} else {
+		blockNumberHex = fmt.Sprintf("0x%x", blockNumber)
+	}
+
+	// Prepare JSON-RPC request parameters
+	params := []interface{}{blockNumberHex, hydratedTxs}
+
+	// Make the JSON-RPC call
+	var result interface{}
+	err := c.jsonRPCClient.CallContext(ctx, &result, "eth_getBlockByNumber", params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call eth_getBlockByNumber: %w", err)
+	}
+
+	// Handle null result (block not found)
+	if result == nil {
+		return nil, fmt.Errorf("block %v not found", blockNumber)
+	}
+
+	// Convert the result to our Block type
+	block, err := c.convertJSONRPCBlock(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert JSON-RPC block: %w", err)
+	}
+
+	return block, nil
+}
+
+// GetBlockByNumberJSONRPCWithOptions fetches a block with additional options
+func (c *EthereumClient) GetBlockByNumberJSONRPCWithOptions(ctx context.Context, blockNumber *big.Int, options BlockRequestOptions) (*types.Block, error) {
+	if c.jsonRPCClient == nil {
+		return nil, fmt.Errorf("no JSON-RPC client available")
+	}
+
+	// Convert block number to hex string for JSON-RPC call
+	var blockNumberHex string
+	if blockNumber == nil {
+		blockNumberHex = "latest"
+	} else {
+		blockNumberHex = fmt.Sprintf("0x%x", blockNumber)
+	}
+
+	// Prepare JSON-RPC request parameters
+	params := []interface{}{blockNumberHex, options.HydratedTransactions}
+
+	// Make the JSON-RPC call with timeout if specified
+	var result interface{}
+	var err error
+	if options.Timeout > 0 {
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, options.Timeout)
+		defer cancel()
+		err = c.jsonRPCClient.CallContext(ctxWithTimeout, &result, "eth_getBlockByNumber", params...)
+	} else {
+		err = c.jsonRPCClient.CallContext(ctx, &result, "eth_getBlockByNumber", params...)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to call eth_getBlockByNumber: %w", err)
+	}
+
+	// Handle null result (block not found)
+	if result == nil {
+		return nil, fmt.Errorf("block %v not found", blockNumber)
+	}
+
+	// Convert the result to our Block type
+	block, err := c.convertJSONRPCBlock(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert JSON-RPC block: %w", err)
+	}
+
+	return block, nil
+}
+
+// convertJSONRPCBlock converts JSON-RPC block response to our Block type
+func (c *EthereumClient) convertJSONRPCBlock(result interface{}) (*types.Block, error) {
+	// Convert interface{} to map[string]interface{}
+	blockMap, ok := result.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid block format")
+	}
+
+	// Helper function to safely get string values
+	getString := func(key string) string {
+		if val, exists := blockMap[key]; exists && val != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+	}
+
+	// Helper function to safely get and convert hex values
+	getHexInt := func(key string) int {
+		if val, exists := blockMap[key]; exists && val != nil {
+			if hexStr, ok := val.(string); ok {
+				if i, err := strconv.ParseInt(hexStr, 0, 64); err == nil {
+					return int(i)
+				}
+			}
+		}
+		return 0
+	}
+
+	// Convert transactions
+	var transactions []types.Transaction
+	if txs, exists := blockMap["transactions"]; exists && txs != nil {
+		switch txList := txs.(type) {
+		case []interface{}:
+			transactions = make([]types.Transaction, 0, len(txList))
+			for i, tx := range txList {
+				if txMap, ok := tx.(map[string]interface{}); ok {
+					// Full transaction object
+					if convertedTx, err := c.convertJSONRPCTransaction(txMap, i); err == nil {
+						transactions = append(transactions, convertedTx)
+					} else {
+						logger.Sugar.Warnf("Failed to convert transaction %d: %v", i, err)
+					}
+				} else if txHash, ok := tx.(string); ok {
+					// Transaction hash only - create minimal transaction
+					transactions = append(transactions, types.Transaction{
+						Hash:             txHash,
+						BlockHash:        getString("hash"),
+						BlockNumber:      getString("number"),
+						TransactionIndex: i,
+					})
+				}
+			}
+		}
+	}
+
+	// Convert uncles
+	var uncles []string
+	if uncleList, exists := blockMap["uncles"]; exists && uncleList != nil {
+		if uncleArray, ok := uncleList.([]interface{}); ok {
+			uncles = make([]string, 0, len(uncleArray))
+			for _, uncle := range uncleArray {
+				if uncleStr, ok := uncle.(string); ok {
+					uncles = append(uncles, uncleStr)
+				}
+			}
+		}
+	}
+
+	// Create the block
+	block := &types.Block{
+		Hash:             getString("hash"),
+		Number:           getString("number"),
+		Timestamp:        getString("timestamp"),
+		ParentHash:       getString("parentHash"),
+		Difficulty:       getString("difficulty"),
+		TotalDifficulty:  getString("totalDifficulty"),
+		GasUsed:          getString("gasUsed"),
+		GasLimit:         getString("gasLimit"),
+		BaseFeePerGas:    getString("baseFeePerGas"),
+		Nonce:            getHexInt("nonce"),
+		Miner:            getString("miner"),
+		Size:             getString("size"),
+		StateRoot:        getString("stateRoot"),
+		Sha3Uncles:       getString("sha3Uncles"),
+		TransactionsRoot: getString("transactionsRoot"),
+		ReceiptsRoot:     getString("receiptsRoot"),
+		LogsBloom:        getString("logsBloom"),
+		ExtraData:        getString("extraData"),
+		MixHash:          getString("mixHash"),
+		Uncles:           uncles,
+		Transactions:     transactions,
+	}
+
+	return block, nil
+}
+
+// convertJSONRPCTransaction converts JSON-RPC transaction to our Transaction type
+func (c *EthereumClient) convertJSONRPCTransaction(txMap map[string]interface{}, index int) (types.Transaction, error) {
+	// Helper function to safely get string values
+	getString := func(key string) string {
+		if val, exists := txMap[key]; exists && val != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return ""
+	}
+
+	// Helper function to safely get and convert hex values
+	getHexInt := func(key string) int {
+		if val, exists := txMap[key]; exists && val != nil {
+			if hexStr, ok := val.(string); ok {
+				if i, err := strconv.ParseInt(hexStr, 0, 64); err == nil {
+					return int(i)
+				}
+			}
+		}
+		return 0
+	}
+
+	// Convert access list if present
+	var accessList []types.AccessListEntry
+	if al, exists := txMap["accessList"]; exists && al != nil {
+		if alArray, ok := al.([]interface{}); ok {
+			accessList = make([]types.AccessListEntry, 0, len(alArray))
+			for _, entry := range alArray {
+				if entryMap, ok := entry.(map[string]interface{}); ok {
+					var storageKeys []string
+					if keys, exists := entryMap["storageKeys"]; exists {
+						if keyArray, ok := keys.([]interface{}); ok {
+							storageKeys = make([]string, 0, len(keyArray))
+							for _, key := range keyArray {
+								if keyStr, ok := key.(string); ok {
+									storageKeys = append(storageKeys, keyStr)
+								}
+							}
+						}
+					}
+					accessList = append(accessList, types.AccessListEntry{
+						Address:     getString("address"),
+						StorageKeys: storageKeys,
+					})
+				}
+			}
+		}
+	}
+
+	// Create the transaction
+	tx := types.Transaction{
+		Hash:                 getString("hash"),
+		BlockHash:            getString("blockHash"),
+		BlockNumber:          getString("blockNumber"),
+		From:                 getString("from"),
+		To:                   getString("to"),
+		Value:                getString("value"),
+		Gas:                  getString("gas"),
+		GasPrice:             getString("gasPrice"),
+		MaxFeePerGas:         getString("maxFeePerGas"),
+		MaxPriorityFeePerGas: getString("maxPriorityFeePerGas"),
+		Input:                getString("input"),
+		Nonce:                getHexInt("nonce"),
+		TransactionIndex:     index,
+		Type:                 getString("type"),
+		ChainId:              getString("chainId"),
+		AccessList:           accessList,
+		V:                    getString("v"),
+		R:                    getString("r"),
+		S:                    getString("s"),
+		Status:               true, // Default to true, updated from receipt
+	}
+
+	return tx, nil
 }
 
 // Close closes the connections
